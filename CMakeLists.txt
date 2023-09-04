@@ -157,7 +157,6 @@ if (NOT MSVC)
 	check_include_files(netdb.h HAVE_NETDB_H)
 	check_include_files(netinet/in.h HAVE_NETINET_IN_H)
 	check_include_files(poll.h HAVE_POLL_H)
-	check_function_exists(rand_r HAVE_RAND_R)
 	check_library_exists(dld shl_load "" HAVE_SHLLOAD)
 	check_function_exists(stat HAVE_STAT)
 	check_include_files(stdint.h HAVE_STDINT_H)
@@ -205,6 +204,30 @@ if (NOT MSVC)
 			set(XML_SOCKLEN_T int)
 		endif()
 	endif()
+endif()
+
+check_c_source_compiles(
+    "_Thread_local int v; int main(){return 0;}"
+    XML_THREAD_LOCAL_C11
+)
+if (XML_THREAD_LOCAL_C11)
+    set(XML_THREAD_LOCAL "_Thread_local")
+else()
+    check_c_source_compiles(
+        "__thread int v; int main(){return 0;}"
+        XML_THREAD_LOCAL_THREAD
+    )
+    if (XML_THREAD_LOCAL_THREAD)
+        set(XML_THREAD_LOCAL "__thread")
+    else()
+        check_c_source_compiles(
+            "__declspec(thread) int v; int main(){return 0;}"
+            XML_THREAD_LOCAL_DECLSPEC
+        )
+        if (XML_THREAD_LOCAL_DECLSPEC)
+            set(XML_THREAD_LOCAL "__declspec(thread)")
+        endif()
+    endif()
 endif()
 
 set(
@@ -324,11 +347,6 @@ add_library(LibXml2 ${LIBXML2_HDRS} ${LIBXML2_SRCS})
 add_library(LibXml2::LibXml2 ALIAS LibXml2)
 
 target_compile_definitions(LibXml2 PRIVATE SYSCONFDIR="${CMAKE_INSTALL_FULL_SYSCONFDIR}")
-
-if(NOT BUILD_SHARED_LIBS)
-	target_compile_definitions(LibXml2 PUBLIC LIBXML_STATIC)
-	set(XML_CFLAGS "-DLIBXML_STATIC")
-endif()
 
 if(CMAKE_C_COMPILER_ID MATCHES "Clang" OR CMAKE_C_COMPILER_ID STREQUAL "GNU")
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -pedantic -Wall -Wextra -Wshadow \
@@ -629,6 +647,17 @@ set(XML_INCLUDEDIR "-I\${includedir}/libxml2")
 set(XML_LIBDIR "-L\${libdir}")
 set(XML_LIBS "-lxml2")
 set(XML_PRIVATE_LIBS "${Z_LIBS} ${LZMA_LIBS} ${THREAD_LIBS} ${ICONV_LIBS} ${ICU_LIBS} ${LIBM} ${WINSOCK_LIBS}")
+set(XML_PC_LIBS "${XML_PRIVATE_LIBS}")
+
+if(BUILD_SHARED_LIBS)
+	set(XML_PC_PRIVATE ".private")
+	set(XML_PC_LIBS_PRIVATE "
+Libs.private:")
+else()
+	target_compile_definitions(LibXml2 PUBLIC LIBXML_STATIC)
+	set(XML_CFLAGS "-DLIBXML_STATIC")
+	set(XML_PRIVATE_LIBS_NO_SHARED "${XML_PRIVATE_LIBS}")
+endif()
 
 file(RELATIVE_PATH PACKAGE_RELATIVE_PATH "${CMAKE_INSTALL_FULL_LIBDIR}/pkgconfig" "${CMAKE_INSTALL_PREFIX}")
 string(REGEX REPLACE "/$" "" PACKAGE_RELATIVE_PATH "${PACKAGE_RELATIVE_PATH}")
