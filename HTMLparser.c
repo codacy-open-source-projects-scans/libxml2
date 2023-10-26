@@ -14,18 +14,16 @@
 #include <ctype.h>
 #include <stdlib.h>
 
+#include <libxml/HTMLparser.h>
 #include <libxml/xmlmemory.h>
 #include <libxml/tree.h>
 #include <libxml/parser.h>
 #include <libxml/parserInternals.h>
 #include <libxml/xmlerror.h>
-#include <libxml/HTMLparser.h>
 #include <libxml/HTMLtree.h>
 #include <libxml/entities.h>
 #include <libxml/encoding.h>
-#include <libxml/valid.h>
 #include <libxml/xmlIO.h>
-#include <libxml/globals.h>
 #include <libxml/uri.h>
 
 #include "private/buf.h"
@@ -39,8 +37,6 @@
 #define HTML_MAX_NAMELEN 1000
 #define HTML_PARSER_BIG_BUFFER_SIZE 1000
 #define HTML_PARSER_BUFFER_SIZE 100
-
-/* #define DEBUG */
 
 static int htmlOmittedDefaultValue = 1;
 
@@ -325,7 +321,6 @@ htmlNodeInfoPop(htmlParserCtxtPtr ctxt)
  ************/
 
 #define CUR_CHAR(l) htmlCurrentChar(ctxt, &l)
-#define CUR_SCHAR(s, l) xmlStringCurrentChar(ctxt, s, &l)
 
 #define COPY_BUF(l,b,i,v)						\
     if (l == 1) b[i++] = v;						\
@@ -1537,20 +1532,11 @@ htmlAutoCloseOnEnd(htmlParserCtxtPtr ctxt)
 static void
 htmlAutoClose(htmlParserCtxtPtr ctxt, const xmlChar * newtag)
 {
-    while ((newtag != NULL) && (ctxt->name != NULL) &&
-           (htmlCheckAutoClose(newtag, ctxt->name))) {
-        if ((ctxt->sax != NULL) && (ctxt->sax->endElement != NULL))
-            ctxt->sax->endElement(ctxt->userData, ctxt->name);
-	htmlnamePop(ctxt);
-    }
-    if (newtag == NULL) {
-        htmlAutoCloseOnEnd(ctxt);
+    if (newtag == NULL)
         return;
-    }
-    while ((newtag == NULL) && (ctxt->name != NULL) &&
-           ((xmlStrEqual(ctxt->name, BAD_CAST "head")) ||
-            (xmlStrEqual(ctxt->name, BAD_CAST "body")) ||
-            (xmlStrEqual(ctxt->name, BAD_CAST "html")))) {
+
+    while ((ctxt->name != NULL) &&
+           (htmlCheckAutoClose(newtag, ctxt->name))) {
         if ((ctxt->sax != NULL) && (ctxt->sax->endElement != NULL))
             ctxt->sax->endElement(ctxt->userData, ctxt->name);
 	htmlnamePop(ctxt);
@@ -6734,7 +6720,7 @@ htmlReadIO(xmlInputReadCallback ioread, xmlInputCloseCallback ioclose,
 /**
  * htmlCtxtReadDoc:
  * @ctxt:  an HTML parser context
- * @cur:  a pointer to a zero terminated string
+ * @str:  a pointer to a zero terminated string
  * @URL:  the base URL to use for the document
  * @encoding:  the document encoding, or NULL
  * @options:  a combination of htmlParserOption(s)

@@ -232,6 +232,7 @@ if test "$with_minimum" = "yes"; then
     test "$with_http" = "" && with_http=no
     test "$with_iconv" = "" && with_iconv=no
     test "$with_iso8859x" = "" && with_iso8859x=no
+    test "$with_lzma" = "" && with_lzma=no
     test "$with_mem_debug" = "" && with_mem_debug=no
     test "$with_output" = "" && with_output=no
     test "$with_pattern" = "" && with_pattern=no
@@ -518,7 +519,7 @@ else
     fi
 
     # warnings we'd like to see
-    AM_CFLAGS="${AM_CFLAGS} -pedantic -Wall -Wextra -Wshadow -Wpointer-arith -Wcast-align -Wwrite-strings -Waggregate-return -Wstrict-prototypes -Wmissing-prototypes -Wnested-externs -Winline"
+    AM_CFLAGS="${AM_CFLAGS} -pedantic -Wall -Wextra -Wshadow -Wpointer-arith -Wcast-align -Wwrite-strings -Wstrict-prototypes -Wmissing-prototypes"
     # warnings we'd like to suppress
     AM_CFLAGS="${AM_CFLAGS} -Wno-long-long -Wno-format-extra-args"
     case "${host}" in
