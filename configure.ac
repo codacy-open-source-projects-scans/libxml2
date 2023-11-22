@@ -2,7 +2,7 @@ dnl Process this file with autoconf to produce a configure script.
 AC_PREREQ([2.63])
 
 m4_define([MAJOR_VERSION], 2)
-m4_define([MINOR_VERSION], 12)
+m4_define([MINOR_VERSION], 13)
 m4_define([MICRO_VERSION], 0)
 
 AC_INIT([libxml2],[MAJOR_VERSION.MINOR_VERSION.MICRO_VERSION])
@@ -308,11 +308,6 @@ dnl
 dnl Checking types
 dnl
 AC_TYPE_UINT32_T
-
-dnl
-dnl Checking libraries
-dnl
-AC_CHECK_FUNCS(snprintf vsnprintf,, NEED_TRIO=1)
 
 dnl Checks for library functions.
 AC_CHECK_FUNCS([gettimeofday ftime stat isascii mmap munmap])
