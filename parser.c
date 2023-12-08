@@ -11022,10 +11022,13 @@ xmlParseDocument(xmlParserCtxtPtr ctxt) {
     xmlDetectSAX2(ctxt);
 
     /*
-     * SAX: beginning of the document processing.
+     * Document locator is unused. Only for backward compatibility.
      */
-    if ((ctxt->sax) && (ctxt->sax->setDocumentLocator))
-        ctxt->sax->setDocumentLocator(ctxt->userData, &xmlDefaultSAXLocator);
+    if ((ctxt->sax) && (ctxt->sax->setDocumentLocator)) {
+        xmlSAXLocator copy = xmlDefaultSAXLocator;
+        ctxt->sax->setDocumentLocator(ctxt->userData, &copy);
+    }
+
     if (ctxt->instate == XML_PARSER_EOF)
 	return(-1);
 
@@ -11185,10 +11188,12 @@ xmlParseExtParsedEnt(xmlParserCtxtPtr ctxt) {
     xmlDetectSAX2(ctxt);
 
     /*
-     * SAX: beginning of the document processing.
+     * Document locator is unused. Only for backward compatibility.
      */
-    if ((ctxt->sax) && (ctxt->sax->setDocumentLocator))
-        ctxt->sax->setDocumentLocator(ctxt->userData, &xmlDefaultSAXLocator);
+    if ((ctxt->sax) && (ctxt->sax->setDocumentLocator)) {
+        xmlSAXLocator copy = xmlDefaultSAXLocator;
+        ctxt->sax->setDocumentLocator(ctxt->userData, &copy);
+    }
 
     xmlDetectEncoding(ctxt);
 
@@ -11673,9 +11678,10 @@ xmlParseTryOrFinish(xmlParserCtxtPtr ctxt, int terminate) {
 			break;
 		    }
 		}
-                if ((ctxt->sax) && (ctxt->sax->setDocumentLocator))
-                    ctxt->sax->setDocumentLocator(ctxt->userData,
-                                                  &xmlDefaultSAXLocator);
+                if ((ctxt->sax) && (ctxt->sax->setDocumentLocator)) {
+                    xmlSAXLocator copy = xmlDefaultSAXLocator;
+                    ctxt->sax->setDocumentLocator(ctxt->userData, &copy);
+                }
                 if ((ctxt->sax) && (ctxt->sax->startDocument) &&
                     (!ctxt->disableSAX))
                     ctxt->sax->startDocument(ctxt->userData);
@@ -13416,6 +13422,8 @@ xmlParseBalancedChunkMemoryRecover(xmlDocPtr doc, xmlSAXHandlerPtr sax,
 	ctxt->str_xmlns = xmlDictLookup(ctxt->dict, BAD_CAST "xmlns", 5);
 	ctxt->str_xml_ns = xmlDictLookup(ctxt->dict, XML_XML_NAMESPACE, 36);
 	ctxt->dictNames = 1;
+        newDoc->dict = ctxt->dict;
+        xmlDictReference(newDoc->dict);
     } else {
 	xmlCtxtUseOptionsInternal(ctxt, XML_PARSE_NODICT, NULL);
     }
@@ -13441,7 +13449,6 @@ xmlParseBalancedChunkMemoryRecover(xmlDocPtr doc, xmlSAXHandlerPtr sax,
 	ctxt->myDoc = newDoc;
     } else {
 	ctxt->myDoc = newDoc;
-	newDoc->children->doc = doc;
 	/* Ensure that doc has XML spec namespace */
 	xmlSearchNsByHref(doc, (xmlNodePtr)doc, XML_XML_NAMESPACE);
 	newDoc->oldNs = doc->oldNs;
@@ -13987,7 +13994,8 @@ xmlSAXUserParseFile(xmlSAXHandlerPtr sax, void *user_data,
  * @buffer:  a pointer to a char array
  * @size:  the size of the array
  *
- * Create a parser context for an XML in-memory document.
+ * Create a parser context for an XML in-memory document. The input buffer
+ * must not contain a terminating null byte.
  *
  * Returns the new parser context or NULL
  */
@@ -14831,7 +14839,8 @@ xmlReadFile(const char *filename, const char *encoding, int options)
  * @encoding:  the document encoding, or NULL
  * @options:  a combination of xmlParserOption
  *
- * parse an XML in-memory document and build a tree.
+ * Parse an XML in-memory document and build a tree. The input buffer must
+ * not contain a terminating null byte.
  *
  * Returns the resulting document tree
  */
@@ -15023,7 +15032,8 @@ xmlCtxtReadFile(xmlParserCtxtPtr ctxt, const char *filename,
  * @encoding:  the document encoding, or NULL
  * @options:  a combination of xmlParserOption
  *
- * parse an XML in-memory document and build a tree.
+ * Parse an XML in-memory document and build a tree. The input buffer must
+ * not contain a terminating null byte.
  * This reuses the existing @ctxt parser context
  *
  * Returns the resulting document tree
