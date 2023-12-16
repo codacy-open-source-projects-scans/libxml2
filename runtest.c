@@ -398,19 +398,17 @@ testStructuredErrorHandler(void *ctx ATTRIBUTE_UNUSED, const xmlError *err) {
     /*
      * Maintain the compatibility with the legacy error handling
      */
-    if (ctxt != NULL) {
+    if ((ctxt != NULL) && (ctxt->input != NULL)) {
         input = ctxt->input;
-        if ((input != NULL) && (input->filename == NULL) &&
+        if ((input->filename == NULL) &&
             (ctxt->inputNr > 1)) {
             cur = input;
             input = ctxt->inputTab[ctxt->inputNr - 2];
         }
-        if (input != NULL) {
-            if (input->filename)
-                channel(data, "%s:%d: ", input->filename, input->line);
-            else if ((line != 0) && (domain == XML_FROM_PARSER))
-                channel(data, "Entity: line %d: ", input->line);
-        }
+        if (input->filename)
+            channel(data, "%s:%d: ", input->filename, input->line);
+        else if ((line != 0) && (domain == XML_FROM_PARSER))
+            channel(data, "Entity: line %d: ", input->line);
     } else {
         if (file != NULL)
             channel(data, "%s:%d: ", file, line);
@@ -2467,6 +2465,7 @@ errParseTest(const char *filename, const char *result, const char *err,
     if (options & XML_PARSE_XINCLUDE) {
 	doc = xmlReadFile(filename, NULL, options);
 	if (xmlXIncludeProcessFlags(doc, options) < 0) {
+            testErrorHandler(NULL, "%s : failed to parse\n", filename);
 	    xmlFreeDoc(doc);
             doc = NULL;
         }
