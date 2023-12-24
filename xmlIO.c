@@ -36,18 +36,6 @@
 #include <direct.h>
 #endif
 
-#ifndef S_ISDIR
-#  ifdef _S_ISDIR
-#    define S_ISDIR(x) _S_ISDIR(x)
-#  elif defined(S_IFDIR)
-#    ifdef S_IFMT
-#      define S_ISDIR(m) (((m) & S_IFMT) == S_IFDIR)
-#    elif defined(_S_IFMT)
-#      define S_ISDIR(m) (((m) & _S_IFMT) == S_IFDIR)
-#    endif
-#  endif
-#endif
-
 #include <libxml/xmlIO.h>
 #include <libxml/xmlmemory.h>
 #include <libxml/parser.h>
@@ -70,6 +58,18 @@
 
 #define MINLEN 4000
 
+#ifndef S_ISDIR
+#  ifdef _S_ISDIR
+#    define S_ISDIR(x) _S_ISDIR(x)
+#  elif defined(S_IFDIR)
+#    ifdef S_IFMT
+#      define S_ISDIR(m) (((m) & S_IFMT) == S_IFDIR)
+#    elif defined(_S_IFMT)
+#      define S_ISDIR(m) (((m) & _S_IFMT) == S_IFDIR)
+#    endif
+#  endif
+#endif
+
 /*
  * Input I/O callback sets
  */
@@ -80,11 +80,14 @@ typedef struct _xmlInputCallback {
     xmlInputCloseCallback closecallback;
 } xmlInputCallback;
 
-#define MAX_INPUT_CALLBACK 15
+/* This dummy function only marks default IO in the callback table */
+static int
+xmlIODefaultMatch(const char *filename);
+
+#define MAX_INPUT_CALLBACK 10
 
 static xmlInputCallback xmlInputCallbackTable[MAX_INPUT_CALLBACK];
-static int xmlInputCallbackNr = 0;
-static int xmlInputCallbackInitialized = 0;
+static int xmlInputCallbackNr;
 
 #ifdef LIBXML_OUTPUT_ENABLED
 /*
@@ -97,112 +100,18 @@ typedef struct _xmlOutputCallback {
     xmlOutputCloseCallback closecallback;
 } xmlOutputCallback;
 
-#define MAX_OUTPUT_CALLBACK 15
+#define MAX_OUTPUT_CALLBACK 10
 
 static xmlOutputCallback xmlOutputCallbackTable[MAX_OUTPUT_CALLBACK];
-static int xmlOutputCallbackNr = 0;
-static int xmlOutputCallbackInitialized = 0;
+static int xmlOutputCallbackNr;
 #endif /* LIBXML_OUTPUT_ENABLED */
 
 /************************************************************************
  *									*
- *		Tree memory error handler				*
+ *			Error handling					*
  *									*
  ************************************************************************/
 
-static const char* const IOerr[] = {
-    "Unknown IO error",         /* UNKNOWN */
-    "Permission denied",	/* EACCES */
-    "Resource temporarily unavailable",/* EAGAIN */
-    "Bad file descriptor",	/* EBADF */
-    "Bad message",		/* EBADMSG */
-    "Resource busy",		/* EBUSY */
-    "Operation canceled",	/* ECANCELED */
-    "No child processes",	/* ECHILD */
-    "Resource deadlock avoided",/* EDEADLK */
-    "Domain error",		/* EDOM */
-    "File exists",		/* EEXIST */
-    "Bad address",		/* EFAULT */
-    "File too large",		/* EFBIG */
-    "Operation in progress",	/* EINPROGRESS */
-    "Interrupted function call",/* EINTR */
-    "Invalid argument",		/* EINVAL */
-    "Input/output error",	/* EIO */
-    "Is a directory",		/* EISDIR */
-    "Too many open files",	/* EMFILE */
-    "Too many links",		/* EMLINK */
-    "Inappropriate message buffer length",/* EMSGSIZE */
-    "Filename too long",	/* ENAMETOOLONG */
-    "Too many open files in system",/* ENFILE */
-    "No such device",		/* ENODEV */
-    "No such file or directory",/* ENOENT */
-    "Exec format error",	/* ENOEXEC */
-    "No locks available",	/* ENOLCK */
-    "Not enough space",		/* ENOMEM */
-    "No space left on device",	/* ENOSPC */
-    "Function not implemented",	/* ENOSYS */
-    "Not a directory",		/* ENOTDIR */
-    "Directory not empty",	/* ENOTEMPTY */
-    "Not supported",		/* ENOTSUP */
-    "Inappropriate I/O control operation",/* ENOTTY */
-    "No such device or address",/* ENXIO */
-    "Operation not permitted",	/* EPERM */
-    "Broken pipe",		/* EPIPE */
-    "Result too large",		/* ERANGE */
-    "Read-only file system",	/* EROFS */
-    "Invalid seek",		/* ESPIPE */
-    "No such process",		/* ESRCH */
-    "Operation timed out",	/* ETIMEDOUT */
-    "Improper link",		/* EXDEV */
-    "Attempt to load network entity %s", /* XML_IO_NETWORK_ATTEMPT */
-    "encoder error",		/* XML_IO_ENCODER */
-    "flush error",
-    "write error",
-    "no input",
-    "buffer full",
-    "loading error",
-    "not a socket",		/* ENOTSOCK */
-    "already connected",	/* EISCONN */
-    "connection refused",	/* ECONNREFUSED */
-    "unreachable network",	/* ENETUNREACH */
-    "address in use",		/* EADDRINUSE */
-    "already in use",		/* EALREADY */
-    "unknown address family",	/* EAFNOSUPPORT */
-};
-
-#if defined(_WIN32)
-/**
- * __xmlIOWin32UTF8ToWChar:
- * @u8String:  uft-8 string
- *
- * Convert a string from utf-8 to wchar (WINDOWS ONLY!)
- */
-static wchar_t *
-__xmlIOWin32UTF8ToWChar(const char *u8String)
-{
-    wchar_t *wString = NULL;
-
-    if (u8String) {
-        int wLen =
-            MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, u8String,
-                                -1, NULL, 0);
-        if (wLen) {
-            wString = xmlMalloc(wLen * sizeof(wchar_t));
-            if (wString) {
-                if (MultiByteToWideChar
-                    (CP_UTF8, 0, u8String, -1, wString, wLen) == 0) {
-                    xmlFree(wString);
-                    wString = NULL;
-                }
-            }
-        }
-    }
-
-    return wString;
-}
-#endif
-
-#if defined(LIBXML_HTTP_ENABLED) && defined(LIBXML_OUTPUT_ENABLED)
 /**
  * xmlIOErrMemory:
  * @extra:  extra information
@@ -210,11 +119,10 @@ __xmlIOWin32UTF8ToWChar(const char *u8String)
  * Handle an out of memory condition
  */
 static void
-xmlIOErrMemory(const char *extra)
+xmlIOErrMemory(void)
 {
-    __xmlSimpleError(XML_FROM_IO, XML_ERR_NO_MEMORY, NULL, NULL, extra);
+    xmlRaiseMemoryError(NULL, NULL, NULL, XML_FROM_IO, NULL);
 }
-#endif
 
 /**
  * __xmlIOErr:
@@ -224,10 +132,10 @@ xmlIOErrMemory(const char *extra)
  *
  * Handle an I/O error
  */
-void
+int
 __xmlIOErr(int domain, int code, const char *extra)
 {
-    unsigned int idx;
+    int res;
 
     if (code == 0) {
 	if (errno == 0) code = 0;
@@ -386,11 +294,17 @@ __xmlIOErr(int domain, int code, const char *extra)
 #endif
         else code = XML_IO_UNKNOWN;
     }
-    idx = 0;
-    if (code >= XML_IO_UNKNOWN) idx = code - XML_IO_UNKNOWN;
-    if (idx >= (sizeof(IOerr) / sizeof(IOerr[0]))) idx = 0;
 
-    __xmlSimpleError(domain, code, NULL, IOerr[idx], extra);
+    res = __xmlRaiseError(NULL, NULL, NULL, NULL, NULL,
+                          domain, code, XML_ERR_ERROR, NULL, 0,
+                          extra, NULL, NULL, 0, 0,
+                          "%s", xmlErrString(code));
+    if (res < 0) {
+        xmlIOErrMemory();
+        return(XML_ERR_NO_MEMORY);
+    }
+
+    return(code);
 }
 
 /**
@@ -400,159 +314,61 @@ __xmlIOErr(int domain, int code, const char *extra)
  *
  * Handle an I/O error
  */
-static void
+static int
 xmlIOErr(int code, const char *extra)
 {
-    __xmlIOErr(XML_FROM_IO, code, extra);
+    return(__xmlIOErr(XML_FROM_IO, code, extra));
 }
 
 /**
- * __xmlLoaderErr:
- * @ctx: the parser context
- * @extra:  extra information
+ * xmlCtxtErrIO:
+ * @ctxt:  parser context
+ * @code:  xmlParserErrors code
+ * @uri:  filename or URI (optional)
  *
- * Handle a resource access error
+ * If filename is empty, use the one from context input if available.
+ *
+ * Report an IO error to the parser context.
  */
 void
-xmlLoaderErr(xmlParserCtxtPtr ctxt, const char *msg, const char *filename)
+xmlCtxtErrIO(xmlParserCtxtPtr ctxt, int code, const char *uri)
 {
+    const char *errstr, *msg, *str1, *str2;
     xmlErrorLevel level;
 
-    if (ctxt->validate)
-        level = XML_ERR_ERROR;
-    else
-        level = XML_ERR_WARNING;
-
-    xmlErrParser(ctxt, NULL, XML_FROM_IO, XML_IO_LOAD_ERROR, level,
-                 (const xmlChar *) filename, NULL, NULL, 0,
-		 msg, filename);
-
-}
-
-/************************************************************************
- *									*
- *		Tree memory error handler				*
- *									*
- ************************************************************************/
-/**
- * xmlNormalizeWindowsPath:
- * @path: the input file path
- *
- * This function is obsolete. Please see xmlURIFromPath in uri.c for
- * a better solution.
- *
- * Returns a canonicalized version of the path
- */
-xmlChar *
-xmlNormalizeWindowsPath(const xmlChar *path)
-{
-    return xmlCanonicPath(path);
-}
-
-/**
- * xmlCleanupInputCallbacks:
- *
- * clears the entire input callback table. this includes the
- * compiled-in I/O.
- */
-void
-xmlCleanupInputCallbacks(void)
-{
-    int i;
-
-    if (!xmlInputCallbackInitialized)
+    if (ctxt == NULL)
         return;
 
-    for (i = xmlInputCallbackNr - 1; i >= 0; i--) {
-        xmlInputCallbackTable[i].matchcallback = NULL;
-        xmlInputCallbackTable[i].opencallback = NULL;
-        xmlInputCallbackTable[i].readcallback = NULL;
-        xmlInputCallbackTable[i].closecallback = NULL;
+    if ((code == XML_IO_ENOENT) ||
+        (code == XML_IO_NETWORK_ATTEMPT) ||
+        (code == XML_IO_UNKNOWN)) {
+        if (ctxt->validate == 0)
+            level = XML_ERR_WARNING;
+        else
+            level = XML_ERR_ERROR;
+    } else {
+        level = XML_ERR_FATAL;
     }
 
-    xmlInputCallbackNr = 0;
-    xmlInputCallbackInitialized = 0;
-}
+    errstr = xmlErrString(code);
 
-/**
- * xmlPopInputCallbacks:
- *
- * Clear the top input callback from the input stack. this includes the
- * compiled-in I/O.
- *
- * Returns the number of input callback registered or -1 in case of error.
- */
-int
-xmlPopInputCallbacks(void)
-{
-    if (!xmlInputCallbackInitialized)
-        return(-1);
-
-    if (xmlInputCallbackNr <= 0)
-        return(-1);
-
-    xmlInputCallbackNr--;
-    xmlInputCallbackTable[xmlInputCallbackNr].matchcallback = NULL;
-    xmlInputCallbackTable[xmlInputCallbackNr].opencallback = NULL;
-    xmlInputCallbackTable[xmlInputCallbackNr].readcallback = NULL;
-    xmlInputCallbackTable[xmlInputCallbackNr].closecallback = NULL;
-
-    return(xmlInputCallbackNr);
-}
-
-#ifdef LIBXML_OUTPUT_ENABLED
-/**
- * xmlCleanupOutputCallbacks:
- *
- * clears the entire output callback table. this includes the
- * compiled-in I/O callbacks.
- */
-void
-xmlCleanupOutputCallbacks(void)
-{
-    int i;
-
-    if (!xmlOutputCallbackInitialized)
-        return;
-
-    for (i = xmlOutputCallbackNr - 1; i >= 0; i--) {
-        xmlOutputCallbackTable[i].matchcallback = NULL;
-        xmlOutputCallbackTable[i].opencallback = NULL;
-        xmlOutputCallbackTable[i].writecallback = NULL;
-        xmlOutputCallbackTable[i].closecallback = NULL;
+    if (uri == NULL) {
+        msg = "%s\n";
+        str1 = errstr;
+        str2 = NULL;
+    } else {
+        msg = "failed to load \"%s\": %s\n";
+        str1 = uri;
+        str2 = errstr;
     }
 
-    xmlOutputCallbackNr = 0;
-    xmlOutputCallbackInitialized = 0;
+    /*
+     * TODO: Set filename in error
+     */
+    xmlCtxtErr(ctxt, NULL, XML_FROM_IO, code, level,
+               (const xmlChar *) uri, NULL, NULL, 0,
+               msg, str1, str2);
 }
-
-/**
- * xmlPopOutputCallbacks:
- *
- * Remove the top output callbacks from the output stack. This includes the
- * compiled-in I/O.
- *
- * Returns the number of output callback registered or -1 in case of error.
- */
-int
-xmlPopOutputCallbacks(void)
-{
-    if (!xmlOutputCallbackInitialized)
-        return(-1);
-
-    if (xmlOutputCallbackNr <= 0)
-        return(-1);
-
-    xmlOutputCallbackNr--;
-    xmlOutputCallbackTable[xmlOutputCallbackNr].matchcallback = NULL;
-    xmlOutputCallbackTable[xmlOutputCallbackNr].opencallback = NULL;
-    xmlOutputCallbackTable[xmlOutputCallbackNr].writecallback = NULL;
-    xmlOutputCallbackTable[xmlOutputCallbackNr].closecallback = NULL;
-
-    return(xmlOutputCallbackNr);
-}
-
-#endif /* LIBXML_OUTPUT_ENABLED */
 
 /************************************************************************
  *									*
@@ -561,6 +377,36 @@ xmlPopOutputCallbacks(void)
  ************************************************************************/
 
 #if defined(_WIN32)
+
+/**
+ * __xmlIOWin32UTF8ToWChar:
+ * @u8String:  uft-8 string
+ *
+ * Convert a string from utf-8 to wchar (WINDOWS ONLY!)
+ */
+static wchar_t *
+__xmlIOWin32UTF8ToWChar(const char *u8String)
+{
+    wchar_t *wString = NULL;
+
+    if (u8String) {
+        int wLen =
+            MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, u8String,
+                                -1, NULL, 0);
+        if (wLen) {
+            wString = xmlMalloc(wLen * sizeof(wchar_t));
+            if (wString) {
+                if (MultiByteToWideChar
+                    (CP_UTF8, 0, u8String, -1, wString, wLen) == 0) {
+                    xmlFree(wString);
+                    wString = NULL;
+                }
+            }
+        }
+    }
+
+    return wString;
+}
 
 /**
  *  xmlWrapOpenUtf8:
@@ -644,11 +490,25 @@ xmlWrapStatUtf8(const char *path, struct _stat *info) {
 #endif
 
 /**
+ * xmlNormalizeWindowsPath:
+ * @path: the input file path
+ *
+ * This function is obsolete. Please see xmlURIFromPath in uri.c for
+ * a better solution.
+ *
+ * Returns a canonicalized version of the path
+ */
+xmlChar *
+xmlNormalizeWindowsPath(const xmlChar *path)
+{
+    return xmlCanonicPath(path);
+}
+
+/**
  * xmlCheckFilename:
  * @path:  the path to check
  *
- * function checks to see if @path is a valid source
- * (file, socket...) for XML.
+ * DEPRECATED: Internal function, don't use.
  *
  * if stat is not available on the target machine,
  * returns 1.  if stat fails, returns 0 (if calling
@@ -695,6 +555,95 @@ xmlCheckFilename (const char *path)
 }
 
 /**
+ * xmlFdOpen:
+ * @filename:  the URI for matching
+ * @out:  pointer to resulting context
+ *
+ * Returns an xmlParserErrors code
+ */
+static int
+xmlFdOpen(const char *filename, void **out) {
+    const char *escaped = NULL;
+    char *unescaped = NULL;
+    int fd;
+    int ret;
+
+    *out = (void *) 0;
+    if (filename == NULL)
+        return(XML_ERR_ARGUMENT);
+
+    /*
+     * TODO: This should be moved to uri.c. We also need support for
+     * UNC paths on Windows.
+     */
+    if (!xmlStrncasecmp(BAD_CAST filename, BAD_CAST "file://localhost/", 17)) {
+#if defined (_WIN32)
+	escaped = &filename[17];
+#else
+	escaped = &filename[16];
+#endif
+    } else if (!xmlStrncasecmp(BAD_CAST filename, BAD_CAST "file:///", 8)) {
+#if defined (_WIN32)
+	escaped = &filename[8];
+#else
+	escaped = &filename[7];
+#endif
+    } else if (!xmlStrncasecmp(BAD_CAST filename, BAD_CAST "file:/", 6)) {
+        /* lots of generators seems to lazy to read RFC 1738 */
+#if defined (_WIN32)
+	escaped = &filename[6];
+#else
+	escaped = &filename[5];
+#endif
+    }
+
+    if (escaped != NULL) {
+        unescaped = xmlURIUnescapeString(escaped, 0, NULL);
+        if (unescaped == NULL)
+            return(XML_ERR_NO_MEMORY);
+        filename = unescaped;
+    }
+
+#if defined(_WIN32)
+    {
+        wchar_t *wpath;
+
+        wpath = __xmlIOWin32UTF8ToWChar(filename);
+        if (wpath == NULL)
+            return(XML_ERR_NO_MEMORY);
+	fd = _wopen(wpath, _O_RDONLY | _O_BINARY);
+        xmlFree(wpath);
+    }
+#else
+    fd = open(filename, O_RDONLY);
+#endif /* WIN32 */
+
+    if (fd < 0) {
+        /*
+         * Windows and possibly other platforms return EINVAL
+         * for invalid filenames.
+         */
+        if ((errno == ENOENT) || (errno == EINVAL)) {
+            ret = XML_IO_ENOENT;
+        } else {
+            /*
+             * This error won't be forwarded to the parser context
+             * which will report it a second time.
+             */
+            ret = xmlIOErr(0, filename);
+        }
+    } else {
+        *out = (void *) (ptrdiff_t) fd;
+        ret = XML_ERR_OK;
+    }
+
+    if (unescaped != NULL)
+        xmlFree(unescaped);
+
+    return(ret);
+}
+
+/**
  * xmlFdRead:
  * @context:  the I/O context
  * @buffer:  where to drop data
@@ -709,7 +658,8 @@ xmlFdRead (void * context, char * buffer, int len) {
     int ret;
 
     ret = read((int) (ptrdiff_t) context, &buffer[0], len);
-    if (ret < 0) xmlIOErr(0, "read()");
+    if (ret < 0)
+        return(-xmlIOErr(0, "fread()"));
     return(ret);
 }
 
@@ -756,7 +706,7 @@ xmlFdClose (void * context) {
  * xmlFileMatch:
  * @filename:  the URI for matching
  *
- * input from FILE *
+ * DEPRECATED: Internal function, don't use.
  *
  * Returns 1 if matches, 0 otherwise
  */
@@ -766,26 +716,23 @@ xmlFileMatch (const char *filename ATTRIBUTE_UNUSED) {
 }
 
 /**
- * xmlFileOpen_real:
+ * xmlFileOpenReal:
  * @filename:  the URI for matching
+ * @out:  pointer to resulting context
  *
  * input from FILE *, supports compressed input
- * if @filename is " " then the standard input is used
  *
  * Returns an I/O context or NULL in case of error
  */
-static void *
-xmlFileOpen_real (const char *filename) {
+static int
+xmlFileOpenReal(const char *filename, void **out) {
     const char *path = filename;
     FILE *fd;
+    int ret = XML_ERR_OK;
 
+    *out = NULL;
     if (filename == NULL)
-        return(NULL);
-
-    if (!strcmp(filename, "-")) {
-	fd = stdin;
-	return((void *) fd);
-    }
+        return(XML_ERR_ARGUMENT);
 
     if (!xmlStrncasecmp(BAD_CAST filename, BAD_CAST "file://localhost/", 17)) {
 #if defined (_WIN32)
@@ -808,45 +755,76 @@ xmlFileOpen_real (const char *filename) {
 #endif
     }
 
-    /* Do not check DDNAME on zOS ! */
-#if !defined(__MVS__)
-    if (!xmlCheckFilename(path))
-        return(NULL);
-#endif
-
 #if defined(_WIN32)
     fd = xmlWrapOpenUtf8(path, 0);
 #else
     fd = fopen(path, "rb");
 #endif /* WIN32 */
-    if (fd == NULL) xmlIOErr(0, path);
-    return((void *) fd);
+
+    if (fd == NULL) {
+        /*
+         * Windows and possibly other platforms return EINVAL
+         * for invalid filenames.
+         */
+        if ((errno == ENOENT) || (errno == EINVAL)) {
+            ret = XML_IO_ENOENT;
+        } else {
+            /*
+             * This error won't be forwarded to the parser context
+             * which will report it a second time.
+             */
+            ret = xmlIOErr(0, path);
+        }
+    }
+
+    *out = fd;
+    return(ret);
+}
+
+/**
+ * xmlFileOpenSafe:
+ * @filename:  the URI for matching
+ * @out:  pointer to resulting context
+ *
+ * Wrapper around xmlFileOpen_real that try it with an unescaped
+ * version of @filename, if this fails fallback to @filename
+ *
+ * Returns an xmlParserErrors code.
+ */
+static int
+xmlFileOpenSafe(const char *filename, void **out) {
+    char *unescaped;
+    int retval;
+
+    retval = xmlFileOpenReal(filename, out);
+    if (retval == XML_ERR_OK)
+        return(retval);
+
+    if (retval == XML_IO_ENOENT) {
+        unescaped = xmlURIUnescapeString(filename, 0, NULL);
+        if (unescaped == NULL)
+            return(XML_ERR_NO_MEMORY);
+        retval = xmlFileOpenReal(unescaped, out);
+        xmlFree(unescaped);
+    }
+
+    return retval;
 }
 
 /**
  * xmlFileOpen:
  * @filename:  the URI for matching
  *
- * Wrapper around xmlFileOpen_real that try it with an unescaped
- * version of @filename, if this fails fallback to @filename
+ * DEPRECATED: Internal function, don't use.
  *
- * Returns a handler or NULL in case or failure
+ * Returns an IO context or NULL in case or failure
  */
 void *
-xmlFileOpen (const char *filename) {
-    char *unescaped;
-    void *retval;
+xmlFileOpen(const char *filename) {
+    void *context;
 
-    retval = xmlFileOpen_real(filename);
-    if (retval == NULL) {
-	unescaped = xmlURIUnescapeString(filename, 0, NULL);
-	if (unescaped != NULL) {
-	    retval = xmlFileOpen_real(unescaped);
-	    xmlFree(unescaped);
-	}
-    }
-
-    return retval;
+    xmlFileOpenSafe(filename, &context);
+    return(context);
 }
 
 #ifdef LIBXML_OUTPUT_ENABLED
@@ -906,7 +884,7 @@ xmlFileOpenW (const char *filename) {
  * @buffer:  where to drop data
  * @len:  number of bytes to write
  *
- * Read @len bytes to @buffer from the I/O channel.
+ * DEPRECATED: Internal function, don't use.
  *
  * Returns the number of bytes written or < 0 in case of failure
  */
@@ -916,7 +894,8 @@ xmlFileRead (void * context, char * buffer, int len) {
     if ((context == NULL) || (buffer == NULL))
         return(-1);
     ret = fread(&buffer[0], 1,  len, (FILE *) context);
-    if (ret < 0) xmlIOErr(0, "fread()");
+    if (ret < 0)
+        return(-xmlIOErr(0, "fread()"));
     return(ret);
 }
 
@@ -950,7 +929,7 @@ xmlFileWrite (void * context, const char * buffer, int len) {
  * xmlFileClose:
  * @context:  the I/O context
  *
- * Close an I/O channel
+ * DEPRECATED: Internal function, don't use.
  *
  * Returns 0 or -1 in case of error
  */
@@ -1049,16 +1028,6 @@ static void *
 xmlGzfileOpen_real (const char *filename) {
     const char *path = NULL;
     gzFile fd;
-
-    if (!strcmp(filename, "-")) {
-        int duped_fd = dup(fileno(stdin));
-        fd = gzdopen(duped_fd, "rb");
-        if (fd == Z_NULL && duped_fd >= 0) {
-            close(duped_fd);  /* gzdOpen() does not close on failure */
-        }
-
-	return((void *) fd);
-    }
 
     if (!xmlStrncasecmp(BAD_CAST filename, BAD_CAST "file://localhost/", 17))
 #if defined (_WIN32)
@@ -1255,11 +1224,6 @@ static void *
 xmlXzfileOpen_real (const char *filename) {
     const char *path = NULL;
     xzFile fd;
-
-    if (!strcmp(filename, "-")) {
-        fd = __libxml2_xzdopen(dup(fileno(stdin)), "rb");
-	return((void *) fd);
-    }
 
     if (!xmlStrncasecmp(BAD_CAST filename, BAD_CAST "file://localhost/", 17)) {
 	path = &filename[16];
@@ -1460,7 +1424,7 @@ xmlCreateZMemBuff( int compression ) {
 
     buff = xmlMalloc( sizeof( xmlZMemBuff ) );
     if ( buff == NULL ) {
-	xmlIOErrMemory("creating buffer context");
+	xmlIOErrMemory();
 	return ( NULL );
     }
 
@@ -1469,7 +1433,7 @@ xmlCreateZMemBuff( int compression ) {
     buff->zbuff = xmlMalloc( buff->size );
     if ( buff->zbuff == NULL ) {
 	xmlFreeZMemBuff( buff );
-	xmlIOErrMemory("creating buffer");
+	xmlIOErrMemory();
 	return ( NULL );
     }
 
@@ -1743,17 +1707,19 @@ xmlIOHTTPOpen (const char *filename) {
  */
 
 void *
-xmlIOHTTPOpenW(const char *post_uri, int compression ATTRIBUTE_UNUSED)
+xmlIOHTTPOpenW(const char *post_uri, int compression)
 {
 
     xmlIOHTTPWriteCtxtPtr ctxt = NULL;
+
+    (void) compression;
 
     if (post_uri == NULL)
         return (NULL);
 
     ctxt = xmlMalloc(sizeof(xmlIOHTTPWriteCtxt));
     if (ctxt == NULL) {
-	xmlIOErrMemory("creating HTTP output context");
+	xmlIOErrMemory();
         return (NULL);
     }
 
@@ -1761,7 +1727,7 @@ xmlIOHTTPOpenW(const char *post_uri, int compression ATTRIBUTE_UNUSED)
 
     ctxt->uri = (char *) xmlStrdup((const xmlChar *)post_uri);
     if (ctxt->uri == NULL) {
-	xmlIOErrMemory("copying URI");
+	xmlIOErrMemory();
         xmlFreeHTTPWriteCtxt(ctxt);
         return (NULL);
     }
@@ -1791,23 +1757,6 @@ xmlIOHTTPOpenW(const char *post_uri, int compression ATTRIBUTE_UNUSED)
     }
 
     return (ctxt);
-}
-#endif /* LIBXML_OUTPUT_ENABLED */
-
-#ifdef LIBXML_OUTPUT_ENABLED
-/**
- * xmlIOHTTPDfltOpenW
- * @post_uri:  The destination URI for this document.
- *
- * Calls xmlIOHTTPOpenW with no compression to set up for a subsequent
- * HTTP post command.  This function should generally not be used as
- * the open callback is short circuited in xmlOutputBufferCreateFile.
- *
- * Returns a pointer to the new IO context.
- */
-static void *
-xmlIOHTTPDfltOpenW( const char * post_uri ) {
-    return ( xmlIOHTTPOpenW( post_uri, 0 ) );
 }
 #endif /* LIBXML_OUTPUT_ENABLED */
 
@@ -1986,20 +1935,6 @@ static int
 xmlIOHTTPClosePut( void * ctxt ) {
     return ( xmlIOHTTPCloseWrite( ctxt, "PUT" ) );
 }
-
-
-/**
- * xmlIOHTTPClosePost
- *
- * @context:  The I/O context
- *
- * Close the transmit HTTP I/O channel and actually send data using a POST
- * HTTP method.
- */
-static int
-xmlIOHTTPClosePost( void * ctxt ) {
-    return ( xmlIOHTTPCloseWrite( ctxt, "POST" ) );
-}
 #endif /* LIBXML_OUTPUT_ENABLED */
 
 #endif /* LIBXML_HTTP_ENABLED */
@@ -2068,155 +2003,163 @@ xmlIOFTPClose (void * context) {
 }
 #endif /* LIBXML_FTP_ENABLED */
 
+/************************************************************************
+ *									*
+ *			Input/output buffers				*
+ *									*
+ ************************************************************************/
 
-/**
- * xmlRegisterInputCallbacks:
- * @matchFunc:  the xmlInputMatchCallback
- * @openFunc:  the xmlInputOpenCallback
- * @readFunc:  the xmlInputReadCallback
- * @closeFunc:  the xmlInputCloseCallback
- *
- * Register a new set of I/O callback for handling parser input.
- *
- * Returns the registered handler number or -1 in case of error
- */
-int
-xmlRegisterInputCallbacks(xmlInputMatchCallback matchFunc,
-	xmlInputOpenCallback openFunc, xmlInputReadCallback readFunc,
-	xmlInputCloseCallback closeFunc) {
-    if (xmlInputCallbackNr >= MAX_INPUT_CALLBACK) {
-	return(-1);
-    }
-    xmlInputCallbackTable[xmlInputCallbackNr].matchcallback = matchFunc;
-    xmlInputCallbackTable[xmlInputCallbackNr].opencallback = openFunc;
-    xmlInputCallbackTable[xmlInputCallbackNr].readcallback = readFunc;
-    xmlInputCallbackTable[xmlInputCallbackNr].closecallback = closeFunc;
-    xmlInputCallbackInitialized = 1;
-    return(xmlInputCallbackNr++);
+static int
+xmlIODefaultMatch(const char *filename ATTRIBUTE_UNUSED) {
+    return(1);
 }
 
-#ifdef LIBXML_OUTPUT_ENABLED
 /**
- * xmlRegisterOutputCallbacks:
- * @matchFunc:  the xmlOutputMatchCallback
- * @openFunc:  the xmlOutputOpenCallback
- * @writeFunc:  the xmlOutputWriteCallback
- * @closeFunc:  the xmlOutputCloseCallback
+ * xmlInputDefaultOpen:
+ * @buf:  input buffer to be filled
+ * @filename:  filename or URI
  *
- * Register a new set of I/O callback for handling output.
- *
- * Returns the registered handler number or -1 in case of error
+ * Returns an xmlParserErrors code.
  */
-int
-xmlRegisterOutputCallbacks(xmlOutputMatchCallback matchFunc,
-	xmlOutputOpenCallback openFunc, xmlOutputWriteCallback writeFunc,
-	xmlOutputCloseCallback closeFunc) {
-    if (xmlOutputCallbackNr >= MAX_OUTPUT_CALLBACK) {
-	return(-1);
+static int
+xmlInputDefaultOpen(xmlParserInputBufferPtr buf, const char *filename) {
+    int ret;
+
+#ifdef LIBXML_FTP_ENABLED
+    if (xmlIOFTPMatch(filename)) {
+        buf->context = xmlIOFTPOpen(filename);
+
+        if (buf->context != NULL) {
+            buf->readcallback = xmlIOFTPRead;
+            buf->closecallback = xmlIOFTPClose;
+            return(XML_ERR_OK);
+        }
     }
-    xmlOutputCallbackTable[xmlOutputCallbackNr].matchcallback = matchFunc;
-    xmlOutputCallbackTable[xmlOutputCallbackNr].opencallback = openFunc;
-    xmlOutputCallbackTable[xmlOutputCallbackNr].writecallback = writeFunc;
-    xmlOutputCallbackTable[xmlOutputCallbackNr].closecallback = closeFunc;
-    xmlOutputCallbackInitialized = 1;
-    return(xmlOutputCallbackNr++);
-}
-#endif /* LIBXML_OUTPUT_ENABLED */
-
-/**
- * xmlRegisterDefaultInputCallbacks:
- *
- * Registers the default compiled-in I/O handlers.
- */
-void
-xmlRegisterDefaultInputCallbacks(void) {
-    if (xmlInputCallbackInitialized)
-	return;
-
-    xmlRegisterInputCallbacks(xmlFileMatch, xmlFileOpen,
-	                      xmlFileRead, xmlFileClose);
-#ifdef LIBXML_ZLIB_ENABLED
-    xmlRegisterInputCallbacks(xmlGzfileMatch, xmlGzfileOpen,
-	                      xmlGzfileRead, xmlGzfileClose);
-#endif /* LIBXML_ZLIB_ENABLED */
-#ifdef LIBXML_LZMA_ENABLED
-    xmlRegisterInputCallbacks(xmlXzfileMatch, xmlXzfileOpen,
-	                      xmlXzfileRead, xmlXzfileClose);
-#endif /* LIBXML_LZMA_ENABLED */
+#endif /* LIBXML_FTP_ENABLED */
 
 #ifdef LIBXML_HTTP_ENABLED
-    xmlRegisterInputCallbacks(xmlIOHTTPMatch, xmlIOHTTPOpen,
-	                      xmlIOHTTPRead, xmlIOHTTPClose);
+    if (xmlIOHTTPMatch(filename)) {
+        buf->context = xmlIOHTTPOpen(filename);
+
+        if (buf->context != NULL) {
+            buf->readcallback = xmlIOHTTPRead;
+            buf->closecallback = xmlIOHTTPClose;
+            return(XML_ERR_OK);
+        }
+    }
 #endif /* LIBXML_HTTP_ENABLED */
 
-#ifdef LIBXML_FTP_ENABLED
-    xmlRegisterInputCallbacks(xmlIOFTPMatch, xmlIOFTPOpen,
-	                      xmlIOFTPRead, xmlIOFTPClose);
-#endif /* LIBXML_FTP_ENABLED */
-    xmlInputCallbackInitialized = 1;
+#ifdef LIBXML_LZMA_ENABLED
+    if (xmlXzfileMatch(filename)) {
+        void *context = xmlXzfileOpen(filename);
+
+        if (context != NULL) {
+            if (__libxml2_xzcompressed(context) > 0) {
+                buf->context = context;
+                buf->readcallback = xmlXzfileRead;
+                buf->closecallback = xmlXzfileClose;
+                buf->compressed = __libxml2_xzcompressed(buf->context);
+
+                return(XML_ERR_OK);
+            }
+
+            xmlXzfileClose(context);
+        }
+    }
+#endif /* LIBXML_LZMA_ENABLED */
+
+#ifdef LIBXML_ZLIB_ENABLED
+    if (xmlGzfileMatch(filename)) {
+        void *context = xmlGzfileOpen(filename);
+
+        if (context != NULL) {
+            char buff4[4];
+
+            if ((gzread(context, buff4, 4) > 0) &&
+                (gzdirect(context) == 0)) {
+                gzrewind(context);
+
+                buf->context = context;
+                buf->readcallback = xmlGzfileRead;
+                buf->closecallback = xmlGzfileClose;
+                buf->compressed = 1;
+
+                return(XML_ERR_OK);
+            }
+
+            xmlGzfileClose(context);
+        }
+    }
+#endif /* LIBXML_ZLIB_ENABLED */
+
+    if (xmlFileMatch(filename)) {
+        ret = xmlFdOpen(filename, &buf->context);
+
+        /* Note that context can be NULL for stdin */
+        if (ret == XML_ERR_OK) {
+            buf->readcallback = xmlFdRead;
+            buf->closecallback = xmlFdClose;
+            return(XML_ERR_OK);
+        }
+        if (ret != XML_IO_ENOENT)
+            return(ret);
+    }
+
+    return(XML_IO_ENOENT);
 }
 
 #ifdef LIBXML_OUTPUT_ENABLED
 /**
- * xmlRegisterDefaultOutputCallbacks:
+ * xmlOutputDefaultOpen:
+ * @buf:  input buffer to be filled
+ * @filename:  filename or URI
+ * @compression:  compression level or 0
+ * @is_file_uri:  whether filename is a file URI
  *
- * Registers the default compiled-in I/O handlers.
+ * Returns an xmlParserErrors code.
  */
-void
-xmlRegisterDefaultOutputCallbacks (void) {
-    if (xmlOutputCallbackInitialized)
-	return;
-
-    xmlRegisterOutputCallbacks(xmlFileMatch, xmlFileOpenW,
-	                      xmlFileWrite, xmlFileClose);
+static int
+xmlOutputDefaultOpen(xmlOutputBufferPtr buf, const char *filename,
+                     int compression, int is_file_uri) {
+    (void) compression;
+    (void) is_file_uri;
 
 #ifdef LIBXML_HTTP_ENABLED
-    xmlRegisterOutputCallbacks(xmlIOHTTPMatch, xmlIOHTTPDfltOpenW,
-	                       xmlIOHTTPWrite, xmlIOHTTPClosePut);
-#endif
+    if (xmlIOHTTPMatch(filename)) {
+        buf->context = xmlIOHTTPOpenW(filename, compression);
 
-/*********************************
- No way a-priori to distinguish between gzipped files from
- uncompressed ones except opening if existing then closing
- and saving with same compression ratio ... a pain.
+        if (buf->context != NULL) {
+            buf->writecallback = xmlIOHTTPWrite;
+            buf->closecallback = xmlIOHTTPClosePut;
+            return(XML_ERR_OK);
+        }
+    }
+#endif /* LIBXML_HTTP_ENABLED */
 
 #ifdef LIBXML_ZLIB_ENABLED
-    xmlRegisterOutputCallbacks(xmlGzfileMatch, xmlGzfileOpen,
-	                       xmlGzfileWrite, xmlGzfileClose);
-#endif
+    if ((compression > 0) && (compression <= 9) && (is_file_uri == 1)) {
+        buf->context = xmlGzfileOpenW(filename, compression);
+        if (buf->context != NULL) {
+            buf->writecallback = xmlGzfileWrite;
+            buf->closecallback = xmlGzfileClose;
+            return(XML_ERR_OK);
+        }
+    }
+#endif /* LIBXML_ZLIB_ENABLED */
 
- Nor FTP PUT ....
-#ifdef LIBXML_FTP_ENABLED
-    xmlRegisterOutputCallbacks(xmlIOFTPMatch, xmlIOFTPOpen,
-	                       xmlIOFTPWrite, xmlIOFTPClose);
-#endif
- **********************************/
-    xmlOutputCallbackInitialized = 1;
-}
+    if (xmlFileMatch(filename)) {
+        buf->context = xmlFileOpenW(filename);
 
-#ifdef LIBXML_HTTP_ENABLED
-/**
- * xmlRegisterHTTPPostCallbacks:
- *
- * By default, libxml submits HTTP output requests using the "PUT" method.
- * Calling this method changes the HTTP output method to use the "POST"
- * method instead.
- *
- */
-void
-xmlRegisterHTTPPostCallbacks( void ) {
+        if (buf->context != NULL) {
+            buf->writecallback = xmlFileWrite;
+            buf->closecallback = xmlFileClose;
+            return(XML_ERR_OK);
+        }
+    }
 
-    /*  Register defaults if not done previously  */
-
-    if ( xmlOutputCallbackInitialized == 0 )
-	xmlRegisterDefaultOutputCallbacks( );
-
-    xmlRegisterOutputCallbacks(xmlIOHTTPMatch, xmlIOHTTPDfltOpenW,
-	                       xmlIOHTTPWrite, xmlIOHTTPClosePost);
-    return;
+    return(XML_IO_ENOENT);
 }
 #endif
-#endif /* LIBXML_OUTPUT_ENABLED */
 
 /**
  * xmlAllocParserInputBuffer:
@@ -2438,74 +2381,71 @@ xmlOutputBufferClose(xmlOutputBufferPtr out)
 }
 #endif /* LIBXML_OUTPUT_ENABLED */
 
-xmlParserInputBufferPtr
-__xmlParserInputBufferCreateFilename(const char *URI, xmlCharEncoding enc) {
-    xmlParserInputBufferPtr ret;
-    int i = 0;
-    void *context = NULL;
+/**
+ * xmlParserInputBufferCreateFilenameInt:
+ * @URI:  the filename or URI
+ * @enc:  encoding enum (deprecated)
+ * @out:  pointer to resulting input buffer
+ *
+ * Returns an xmlParserErrors code.
+ */
+static int
+xmlParserInputBufferCreateFilenameInt(const char *URI, xmlCharEncoding enc,
+                                      xmlParserInputBufferPtr *out) {
+    xmlParserInputBufferPtr buf;
+    int ret;
+    int i;
 
-    if (xmlInputCallbackInitialized == 0)
-	xmlRegisterDefaultInputCallbacks();
+    *out = NULL;
+    if (URI == NULL)
+        return(XML_ERR_ARGUMENT);
 
-    if (URI == NULL) return(NULL);
+    /*
+     * Allocate the Input buffer front-end.
+     */
+    buf = xmlAllocParserInputBuffer(enc);
+    if (buf == NULL)
+        return(XML_ERR_NO_MEMORY);
 
     /*
      * Try to find one of the input accept method accepting that scheme
      * Go in reverse to give precedence to user defined handlers.
      */
-    if (context == NULL) {
-	for (i = xmlInputCallbackNr - 1;i >= 0;i--) {
-	    if ((xmlInputCallbackTable[i].matchcallback != NULL) &&
-		(xmlInputCallbackTable[i].matchcallback(URI) != 0)) {
-		context = xmlInputCallbackTable[i].opencallback(URI);
-		if (context != NULL) {
-		    break;
-		}
-	    }
-	}
+    ret = XML_IO_ENOENT;
+    for (i = xmlInputCallbackNr - 1; i >= 0; i--) {
+        xmlInputCallback *cb = &xmlInputCallbackTable[i];
+
+        if (cb->matchcallback == xmlIODefaultMatch) {
+            ret = xmlInputDefaultOpen(buf, URI);
+
+            if ((ret == XML_ERR_OK) || (ret != XML_IO_ENOENT))
+                break;
+        } else if ((cb->matchcallback != NULL) &&
+                   (cb->matchcallback(URI) != 0)) {
+            buf->context = cb->opencallback(URI);
+            if (buf->context != NULL) {
+                buf->readcallback = cb->readcallback;
+                buf->closecallback = cb->closecallback;
+                ret = XML_ERR_OK;
+                break;
+            }
+        }
     }
-    if (context == NULL) {
-	return(NULL);
+    if (ret != XML_ERR_OK) {
+        xmlFreeParserInputBuffer(buf);
+        *out = NULL;
+	return(ret);
     }
 
-    /*
-     * Allocate the Input buffer front-end.
-     */
-    ret = xmlAllocParserInputBuffer(enc);
-    if (ret != NULL) {
-	ret->context = context;
-	ret->readcallback = xmlInputCallbackTable[i].readcallback;
-	ret->closecallback = xmlInputCallbackTable[i].closecallback;
-#ifdef LIBXML_ZLIB_ENABLED
-	if ((xmlInputCallbackTable[i].opencallback == xmlGzfileOpen) &&
-		(strcmp(URI, "-") != 0)) {
-#if defined(ZLIB_VERNUM) && ZLIB_VERNUM >= 0x1230
-            ret->compressed = !gzdirect(context);
-#else
-	    if (((z_stream *)context)->avail_in > 4) {
-	        char *cptr, buff4[4];
-		cptr = (char *) ((z_stream *)context)->next_in;
-		if (gzread(context, buff4, 4) == 4) {
-		    if (strncmp(buff4, cptr, 4) == 0)
-		        ret->compressed = 0;
-		    else
-		        ret->compressed = 1;
-		    gzrewind(context);
-		}
-	    }
-#endif
-	}
-#endif
-#ifdef LIBXML_LZMA_ENABLED
-	if ((xmlInputCallbackTable[i].opencallback == xmlXzfileOpen) &&
-		(strcmp(URI, "-") != 0)) {
-            ret->compressed = __libxml2_xzcompressed(context);
-	}
-#endif
-    }
-    else
-      xmlInputCallbackTable[i].closecallback (context);
+    *out = buf;
+    return(ret);
+}
 
+xmlParserInputBufferPtr
+__xmlParserInputBufferCreateFilename(const char *URI, xmlCharEncoding enc) {
+    xmlParserInputBufferPtr ret;
+
+    xmlParserInputBufferCreateFilenameInt(URI, enc, &ret);
     return(ret);
 }
 
@@ -2515,7 +2455,6 @@ __xmlParserInputBufferCreateFilename(const char *URI, xmlCharEncoding enc) {
  * @enc:  the charset encoding if known
  *
  * Create a buffered parser input for the progressive parsing of a file
- * If filename is "-' then we use stdin as the input.
  * Automatic support for ZLIB/Compress compressed document is provided
  * by default if found at compile-time.
  * Do an encoding check if enc == XML_CHAR_ENCODING_NONE
@@ -2524,135 +2463,123 @@ __xmlParserInputBufferCreateFilename(const char *URI, xmlCharEncoding enc) {
  */
 xmlParserInputBufferPtr
 xmlParserInputBufferCreateFilename(const char *URI, xmlCharEncoding enc) {
-    if ((xmlParserInputBufferCreateFilenameValue)) {
-		return xmlParserInputBufferCreateFilenameValue(URI, enc);
-	}
-	return __xmlParserInputBufferCreateFilename(URI, enc);
+    if (xmlParserInputBufferCreateFilenameValue != NULL)
+        return(xmlParserInputBufferCreateFilenameValue(URI, enc));
+
+    return(__xmlParserInputBufferCreateFilename(URI, enc));
+}
+
+/**
+ * xmlParserInputBufferCreateFilenameSafe:
+ * @URI:  the filename or URI
+ * @enc:  encoding enum (deprecated)
+ * @out:  pointer to resulting input buffer
+ *
+ * Returns an xmlParserErrors code.
+ */
+int
+xmlParserInputBufferCreateFilenameSafe(const char *URI, xmlCharEncoding enc,
+                                       xmlParserInputBufferPtr *out) {
+    if (xmlParserInputBufferCreateFilenameValue != NULL) {
+        *out = xmlParserInputBufferCreateFilenameValue(URI, enc);
+
+        if (*out == NULL)
+            return(XML_IO_ENOENT);
+        return(XML_ERR_OK);
+    }
+
+    return(xmlParserInputBufferCreateFilenameInt(URI, enc, out));
 }
 
 #ifdef LIBXML_OUTPUT_ENABLED
 xmlOutputBufferPtr
 __xmlOutputBufferCreateFilename(const char *URI,
                               xmlCharEncodingHandlerPtr encoder,
-                              int compression ATTRIBUTE_UNUSED) {
+                              int compression) {
     xmlOutputBufferPtr ret;
     xmlURIPtr puri;
     int i = 0;
-    void *context = NULL;
     char *unescaped = NULL;
-#ifdef LIBXML_ZLIB_ENABLED
     int is_file_uri = 1;
-#endif
 
-    if (xmlOutputCallbackInitialized == 0)
-	xmlRegisterDefaultOutputCallbacks();
+    (void) compression;
 
     if (URI == NULL) return(NULL);
 
     puri = xmlParseURI(URI);
     if (puri != NULL) {
-#ifdef LIBXML_ZLIB_ENABLED
         if ((puri->scheme != NULL) &&
 	    (!xmlStrEqual(BAD_CAST puri->scheme, BAD_CAST "file")))
 	    is_file_uri = 0;
-#endif
+
 	/*
 	 * try to limit the damages of the URI unescaping code.
 	 */
 	if ((puri->scheme == NULL) ||
-	    (xmlStrEqual(BAD_CAST puri->scheme, BAD_CAST "file")))
+	    (xmlStrEqual(BAD_CAST puri->scheme, BAD_CAST "file"))) {
 	    unescaped = xmlURIUnescapeString(URI, 0, NULL);
+            if (unescaped == NULL) {
+                xmlFreeURI(puri);
+                return(NULL);
+            }
+        }
 	xmlFreeURI(puri);
-    }
-
-    /*
-     * Try to find one of the output accept method accepting that scheme
-     * Go in reverse to give precedence to user defined handlers.
-     * try with an unescaped version of the URI
-     */
-    if (unescaped != NULL) {
-#ifdef LIBXML_ZLIB_ENABLED
-	if ((compression > 0) && (compression <= 9) && (is_file_uri == 1)) {
-	    context = xmlGzfileOpenW(unescaped, compression);
-	    if (context != NULL) {
-		ret = xmlAllocOutputBufferInternal(encoder);
-		if (ret != NULL) {
-		    ret->context = context;
-		    ret->writecallback = xmlGzfileWrite;
-		    ret->closecallback = xmlGzfileClose;
-		}
-		xmlFree(unescaped);
-		return(ret);
-	    }
-	}
-#endif
-	for (i = xmlOutputCallbackNr - 1;i >= 0;i--) {
-	    if ((xmlOutputCallbackTable[i].matchcallback != NULL) &&
-		(xmlOutputCallbackTable[i].matchcallback(unescaped) != 0)) {
-#if defined(LIBXML_HTTP_ENABLED) && defined(LIBXML_ZLIB_ENABLED)
-		/*  Need to pass compression parameter into HTTP open calls  */
-		if (xmlOutputCallbackTable[i].matchcallback == xmlIOHTTPMatch)
-		    context = xmlIOHTTPOpenW(unescaped, compression);
-		else
-#endif
-		    context = xmlOutputCallbackTable[i].opencallback(unescaped);
-		if (context != NULL)
-		    break;
-	    }
-	}
-	xmlFree(unescaped);
-    }
-
-    /*
-     * If this failed try with a non-escaped URI this may be a strange
-     * filename
-     */
-    if (context == NULL) {
-#ifdef LIBXML_ZLIB_ENABLED
-	if ((compression > 0) && (compression <= 9) && (is_file_uri == 1)) {
-	    context = xmlGzfileOpenW(URI, compression);
-	    if (context != NULL) {
-		ret = xmlAllocOutputBufferInternal(encoder);
-		if (ret != NULL) {
-		    ret->context = context;
-		    ret->writecallback = xmlGzfileWrite;
-		    ret->closecallback = xmlGzfileClose;
-		}
-		else
-		    xmlGzfileClose(context);
-		return(ret);
-	    }
-	}
-#endif
-	for (i = xmlOutputCallbackNr - 1;i >= 0;i--) {
-	    if ((xmlOutputCallbackTable[i].matchcallback != NULL) &&
-		(xmlOutputCallbackTable[i].matchcallback(URI) != 0)) {
-#if defined(LIBXML_HTTP_ENABLED) && defined(LIBXML_ZLIB_ENABLED)
-		/*  Need to pass compression parameter into HTTP open calls  */
-		if (xmlOutputCallbackTable[i].matchcallback == xmlIOHTTPMatch)
-		    context = xmlIOHTTPOpenW(URI, compression);
-		else
-#endif
-		    context = xmlOutputCallbackTable[i].opencallback(URI);
-		if (context != NULL)
-		    break;
-	    }
-	}
-    }
-
-    if (context == NULL) {
-	return(NULL);
     }
 
     /*
      * Allocate the Output buffer front-end.
      */
     ret = xmlAllocOutputBufferInternal(encoder);
-    if (ret != NULL) {
-	ret->context = context;
-	ret->writecallback = xmlOutputCallbackTable[i].writecallback;
-	ret->closecallback = xmlOutputCallbackTable[i].closecallback;
+    if (ret == NULL)
+        return(NULL);
+
+    /*
+     * Try to find one of the output accept method accepting that scheme
+     * Go in reverse to give precedence to user defined handlers.
+     */
+    for (i = xmlOutputCallbackNr - 1; i >= 0; i--) {
+        xmlOutputCallback *cb = &xmlOutputCallbackTable[i];
+        int code;
+
+        if (cb->matchcallback == xmlIODefaultMatch) {
+            if (unescaped != NULL) {
+                code = xmlOutputDefaultOpen(ret, unescaped, compression,
+                                            is_file_uri);
+                /* TODO: Handle other errors */
+                if (code == XML_ERR_OK)
+                    break;
+            }
+
+            code = xmlOutputDefaultOpen(ret, URI, compression, is_file_uri);
+            /* TODO: Handle other errors */
+            if (code == XML_ERR_OK)
+                break;
+        } else if ((cb->matchcallback != NULL) &&
+                   (cb->matchcallback(unescaped) != 0)) {
+            ret->context = cb->opencallback(unescaped);
+            if (ret->context != NULL) {
+                ret->writecallback = cb->writecallback;
+                ret->closecallback = cb->closecallback;
+                break;
+            }
+        } else if ((cb->matchcallback != NULL) &&
+                   (cb->matchcallback(URI) != 0)) {
+            ret->context = cb->opencallback(URI);
+            if (ret->context != NULL) {
+                ret->writecallback = cb->writecallback;
+                ret->closecallback = cb->closecallback;
+                break;
+            }
+        }
     }
+
+    xmlFree(unescaped);
+
+    if (ret->context == NULL) {
+        xmlOutputBufferClose(ret);
+	return(NULL);
+    }
+
     return(ret);
 }
 
@@ -2700,9 +2627,6 @@ xmlParserInputBufferPtr
 xmlParserInputBufferCreateFile(FILE *file, xmlCharEncoding enc) {
     xmlParserInputBufferPtr ret;
 
-    if (xmlInputCallbackInitialized == 0)
-	xmlRegisterDefaultInputCallbacks();
-
     if (file == NULL) return(NULL);
 
     ret = xmlAllocParserInputBuffer(enc);
@@ -2729,9 +2653,6 @@ xmlParserInputBufferCreateFile(FILE *file, xmlCharEncoding enc) {
 xmlOutputBufferPtr
 xmlOutputBufferCreateFile(FILE *file, xmlCharEncodingHandlerPtr encoder) {
     xmlOutputBufferPtr ret;
-
-    if (xmlOutputCallbackInitialized == 0)
-	xmlRegisterDefaultOutputCallbacks();
 
     if (file == NULL) return(NULL);
 
@@ -3262,7 +3183,10 @@ xmlParserInputBufferGrow(xmlParserInputBufferPtr in, int len) {
 	if (res <= 0)
 	    in->readcallback = endOfInput;
         if (res < 0) {
-            in->error = XML_IO_UNKNOWN;
+            if (res == -1)
+                in->error = XML_IO_UNKNOWN;
+            else
+                in->error = -res;
             return(-1);
         }
 
@@ -3713,9 +3637,6 @@ xmlParserGetDirectory(const char *filename) {
     char dir[1024];
     char *cur;
 
-    if (xmlInputCallbackInitialized == 0)
-	xmlRegisterDefaultInputCallbacks();
-
     if (filename == NULL) return(NULL);
 
 #if defined(_WIN32)
@@ -3781,10 +3702,9 @@ xmlCheckHTTPInput(xmlParserCtxtPtr ctxt, xmlParserInputPtr ret) {
         if (code >= 400) {
             /* fatal error */
 	    if (ret->filename != NULL)
-                xmlLoaderErr(ctxt, "failed to load HTTP resource \"%s\"\n",
-                             (const char *) ret->filename);
+                xmlCtxtErrIO(ctxt, XML_IO_LOAD_ERROR, ret->filename);
 	    else
-                xmlLoaderErr(ctxt, "failed to load HTTP resource\n", NULL);
+                xmlCtxtErrIO(ctxt, XML_IO_LOAD_ERROR, "<null>");
             xmlFreeInputStream(ret);
             ret = NULL;
         } else {
@@ -3935,6 +3855,9 @@ xmlDefaultExternalEntityLoader(const char *URL, const char *ID,
     xmlParserInputPtr ret = NULL;
     xmlChar *resource = NULL;
 
+    if (URL == NULL)
+        return(NULL);
+
     if ((ctxt != NULL) && (ctxt->options & XML_PARSE_NONET)) {
         int options = ctxt->options;
 
@@ -3950,13 +3873,6 @@ xmlDefaultExternalEntityLoader(const char *URL, const char *ID,
     if (resource == NULL)
         resource = (xmlChar *) URL;
 
-    if (resource == NULL) {
-        if (ID == NULL)
-            ID = "NULL";
-        if (ctxt != NULL)
-            xmlLoaderErr(ctxt, "failed to load external entity \"%s\"\n", ID);
-        return (NULL);
-    }
     ret = xmlNewInputFromFile(ctxt, (const char *) resource);
     if ((resource != NULL) && (resource != (xmlChar *) URL))
         xmlFree(resource);
@@ -4009,7 +3925,7 @@ xmlLoadExternalEntity(const char *URL, const char *ID,
 
 	canonicFilename = (char *) xmlCanonicPath((const xmlChar *) URL);
 	if (canonicFilename == NULL) {
-            xmlErrMemory(ctxt, "building canonical path\n");
+            xmlCtxtErrMemory(ctxt);
 	    return(NULL);
 	}
 
@@ -4053,7 +3969,8 @@ xmlNoNetExternalEntityLoader(const char *URL, const char *ID,
     if (resource != NULL) {
         if ((!xmlStrncasecmp(BAD_CAST resource, BAD_CAST "ftp://", 6)) ||
             (!xmlStrncasecmp(BAD_CAST resource, BAD_CAST "http://", 7))) {
-            xmlIOErr(XML_IO_NETWORK_ATTEMPT, (const char *) resource);
+            xmlCtxtErrIO(ctxt, XML_IO_NETWORK_ATTEMPT,
+                         (const char *) resource);
 	    if (resource != (xmlChar *) URL)
 		xmlFree(resource);
 	    return(NULL);
@@ -4064,4 +3981,173 @@ xmlNoNetExternalEntityLoader(const char *URL, const char *ID,
 	xmlFree(resource);
     return(input);
 }
+
+/************************************************************************
+ *									*
+ *			Input/output callbacks				*
+ *									*
+ ************************************************************************/
+
+/**
+ * xmlInitIOCallbacks:
+ *
+ * Initialize callback tables.
+ */
+void
+xmlInitIOCallbacks(void)
+{
+    xmlInputCallbackNr = 1;
+    xmlInputCallbackTable[0].matchcallback = xmlIODefaultMatch;
+
+#ifdef LIBXML_OUTPUT_ENABLED
+    xmlOutputCallbackNr = 1;
+    xmlOutputCallbackTable[0].matchcallback = xmlIODefaultMatch;
+#endif
+}
+
+/**
+ * xmlRegisterInputCallbacks:
+ * @matchFunc:  the xmlInputMatchCallback
+ * @openFunc:  the xmlInputOpenCallback
+ * @readFunc:  the xmlInputReadCallback
+ * @closeFunc:  the xmlInputCloseCallback
+ *
+ * Register a new set of I/O callback for handling parser input.
+ *
+ * Returns the registered handler number or -1 in case of error
+ */
+int
+xmlRegisterInputCallbacks(xmlInputMatchCallback matchFunc,
+	xmlInputOpenCallback openFunc, xmlInputReadCallback readFunc,
+	xmlInputCloseCallback closeFunc) {
+    if (xmlInputCallbackNr >= MAX_INPUT_CALLBACK) {
+	return(-1);
+    }
+    xmlInputCallbackTable[xmlInputCallbackNr].matchcallback = matchFunc;
+    xmlInputCallbackTable[xmlInputCallbackNr].opencallback = openFunc;
+    xmlInputCallbackTable[xmlInputCallbackNr].readcallback = readFunc;
+    xmlInputCallbackTable[xmlInputCallbackNr].closecallback = closeFunc;
+    return(xmlInputCallbackNr++);
+}
+
+/**
+ * xmlRegisterDefaultInputCallbacks:
+ *
+ * Registers the default compiled-in I/O handlers.
+ */
+void
+xmlRegisterDefaultInputCallbacks(void) {
+    xmlRegisterInputCallbacks(xmlIODefaultMatch, NULL, NULL, NULL);
+}
+
+/**
+ * xmlPopInputCallbacks:
+ *
+ * Clear the top input callback from the input stack. this includes the
+ * compiled-in I/O.
+ *
+ * Returns the number of input callback registered or -1 in case of error.
+ */
+int
+xmlPopInputCallbacks(void)
+{
+    if (xmlInputCallbackNr <= 0)
+        return(-1);
+
+    xmlInputCallbackNr--;
+
+    return(xmlInputCallbackNr);
+}
+
+/**
+ * xmlCleanupInputCallbacks:
+ *
+ * clears the entire input callback table. this includes the
+ * compiled-in I/O.
+ */
+void
+xmlCleanupInputCallbacks(void)
+{
+    xmlInputCallbackNr = 0;
+}
+
+#ifdef LIBXML_OUTPUT_ENABLED
+/**
+ * xmlRegisterOutputCallbacks:
+ * @matchFunc:  the xmlOutputMatchCallback
+ * @openFunc:  the xmlOutputOpenCallback
+ * @writeFunc:  the xmlOutputWriteCallback
+ * @closeFunc:  the xmlOutputCloseCallback
+ *
+ * Register a new set of I/O callback for handling output.
+ *
+ * Returns the registered handler number or -1 in case of error
+ */
+int
+xmlRegisterOutputCallbacks(xmlOutputMatchCallback matchFunc,
+	xmlOutputOpenCallback openFunc, xmlOutputWriteCallback writeFunc,
+	xmlOutputCloseCallback closeFunc) {
+    if (xmlOutputCallbackNr >= MAX_OUTPUT_CALLBACK) {
+	return(-1);
+    }
+    xmlOutputCallbackTable[xmlOutputCallbackNr].matchcallback = matchFunc;
+    xmlOutputCallbackTable[xmlOutputCallbackNr].opencallback = openFunc;
+    xmlOutputCallbackTable[xmlOutputCallbackNr].writecallback = writeFunc;
+    xmlOutputCallbackTable[xmlOutputCallbackNr].closecallback = closeFunc;
+    return(xmlOutputCallbackNr++);
+}
+
+/**
+ * xmlRegisterDefaultOutputCallbacks:
+ *
+ * Registers the default compiled-in I/O handlers.
+ */
+void
+xmlRegisterDefaultOutputCallbacks (void) {
+    xmlRegisterOutputCallbacks(xmlIODefaultMatch, NULL, NULL, NULL);
+}
+
+/**
+ * xmlPopOutputCallbacks:
+ *
+ * Remove the top output callbacks from the output stack. This includes the
+ * compiled-in I/O.
+ *
+ * Returns the number of output callback registered or -1 in case of error.
+ */
+int
+xmlPopOutputCallbacks(void)
+{
+    if (xmlOutputCallbackNr <= 0)
+        return(-1);
+
+    xmlOutputCallbackNr--;
+
+    return(xmlOutputCallbackNr);
+}
+
+/**
+ * xmlCleanupOutputCallbacks:
+ *
+ * clears the entire output callback table. this includes the
+ * compiled-in I/O callbacks.
+ */
+void
+xmlCleanupOutputCallbacks(void)
+{
+    xmlOutputCallbackNr = 0;
+}
+
+#ifdef LIBXML_HTTP_ENABLED
+/**
+ * xmlRegisterHTTPPostCallbacks:
+ *
+ * DEPRECATED: Has no effect.
+ */
+void
+xmlRegisterHTTPPostCallbacks(void) {
+    xmlRegisterDefaultOutputCallbacks();
+}
+#endif
+#endif /* LIBXML_OUTPUT_ENABLED */
 

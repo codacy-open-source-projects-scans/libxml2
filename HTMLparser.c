@@ -58,9 +58,9 @@ static void htmlParseComment(htmlParserCtxtPtr ctxt);
  * Handle a redefinition of attribute error
  */
 static void
-htmlErrMemory(xmlParserCtxtPtr ctxt, const char *extra)
+htmlErrMemory(xmlParserCtxtPtr ctxt)
 {
-    xmlErrMemory(ctxt, extra);
+    xmlCtxtErrMemory(ctxt);
 }
 
 /**
@@ -77,8 +77,8 @@ static void LIBXML_ATTR_FORMAT(3,0)
 htmlParseErr(xmlParserCtxtPtr ctxt, xmlParserErrors error,
              const char *msg, const xmlChar *str1, const xmlChar *str2)
 {
-    xmlErrParser(ctxt, NULL, XML_FROM_HTML, error, XML_ERR_ERROR,
-                 str1, str2, NULL, 0, msg, str1, str2);
+    xmlCtxtErr(ctxt, NULL, XML_FROM_HTML, error, XML_ERR_ERROR,
+               str1, str2, NULL, 0, msg, str1, str2);
 }
 
 /**
@@ -94,8 +94,8 @@ static void LIBXML_ATTR_FORMAT(3,0)
 htmlParseErrInt(xmlParserCtxtPtr ctxt, xmlParserErrors error,
              const char *msg, int val)
 {
-    xmlErrParser(ctxt, NULL, XML_FROM_HTML, error, XML_ERR_ERROR,
-                 NULL, NULL, NULL, val, msg, val);
+    xmlCtxtErr(ctxt, NULL, XML_FROM_HTML, error, XML_ERR_ERROR,
+               NULL, NULL, NULL, val, msg, val);
 }
 
 /************************************************************************
@@ -127,7 +127,7 @@ htmlnamePush(htmlParserCtxtPtr ctxt, const xmlChar * value)
         tmp = xmlRealloc((xmlChar **) ctxt->nameTab,
                          newSize * sizeof(ctxt->nameTab[0]));
         if (tmp == NULL) {
-            htmlErrMemory(ctxt, NULL);
+            htmlErrMemory(ctxt);
             return (-1);
         }
         ctxt->nameTab = tmp;
@@ -185,7 +185,7 @@ htmlNodeInfoPush(htmlParserCtxtPtr ctxt, htmlParserNodeInfo *value)
                                     ctxt->nodeInfoMax *
                                     sizeof(ctxt->nodeInfoTab[0]));
         if (ctxt->nodeInfoTab == NULL) {
-            htmlErrMemory(ctxt, NULL);
+            htmlErrMemory(ctxt);
             return (0);
         }
     }
@@ -343,7 +343,7 @@ htmlFindEncoding(xmlParserCtxtPtr ctxt) {
         return(NULL);
     ret = xmlStrndup(start, cur - start);
     if (ret == NULL)
-        htmlErrMemory(ctxt, NULL);
+        htmlErrMemory(ctxt);
     return(ret);
 }
 
@@ -490,20 +490,7 @@ htmlCurrentChar(xmlParserCtxtPtr ctxt, int *len) {
     }
 
 encoding_error:
-    {
-        char buffer[150];
-
-	if (ctxt->input->end - ctxt->input->cur >= 4) {
-	    snprintf(buffer, 149, "Bytes: 0x%02X 0x%02X 0x%02X 0x%02X\n",
-			    ctxt->input->cur[0], ctxt->input->cur[1],
-			    ctxt->input->cur[2], ctxt->input->cur[3]);
-	} else {
-	    snprintf(buffer, 149, "Bytes: 0x%02X\n", ctxt->input->cur[0]);
-	}
-	htmlParseErr(ctxt, XML_ERR_INVALID_ENCODING,
-		     "Input is not proper UTF-8, indicate encoding !\n",
-		     BAD_CAST buffer, NULL);
-    }
+    xmlCtxtErrIO(ctxt, XML_ERR_INVALID_ENCODING, NULL);
 
     if ((ctxt->input->flags & XML_INPUT_HAS_ENCODING) == 0)
         xmlSwitchEncoding(ctxt, XML_CHAR_ENCODING_8859_1);
@@ -1996,7 +1983,7 @@ static const htmlEntityDesc  html40EntitiesTable[] = {
     buffer##_size *= 2;							\
     tmp = (xmlChar *) xmlRealloc(buffer, buffer##_size); 		\
     if (tmp == NULL) {							\
-	htmlErrMemory(ctxt, "growing buffer\n");			\
+	htmlErrMemory(ctxt);			\
 	xmlFree(buffer);						\
 	return(NULL);							\
     }									\
@@ -2273,7 +2260,7 @@ htmlNewInputStream(htmlParserCtxtPtr ctxt) {
 
     input = (xmlParserInputPtr) xmlMalloc(sizeof(htmlParserInput));
     if (input == NULL) {
-        htmlErrMemory(ctxt, "couldn't allocate a new input stream\n");
+        htmlErrMemory(ctxt);
 	return(NULL);
     }
     memset(input, 0, sizeof(htmlParserInput));
@@ -2518,7 +2505,7 @@ htmlParseHTMLName(htmlParserCtxtPtr ctxt) {
 
     ret = xmlDictLookup(ctxt->dict, loc, i);
     if (ret == NULL)
-        htmlErrMemory(ctxt, NULL);
+        htmlErrMemory(ctxt);
 
     return(ret);
 }
@@ -2554,7 +2541,7 @@ htmlParseHTMLName_nonInvasive(htmlParserCtxtPtr ctxt) {
 
     ret = xmlDictLookup(ctxt->dict, loc, i);
     if (ret == NULL)
-        htmlErrMemory(ctxt, NULL);
+        htmlErrMemory(ctxt);
 
     return(ret);
 }
@@ -2599,7 +2586,7 @@ htmlParseName(htmlParserCtxtPtr ctxt) {
 	    count = in - ctxt->input->cur;
 	    ret = xmlDictLookup(ctxt->dict, ctxt->input->cur, count);
             if (ret == NULL)
-                htmlErrMemory(ctxt, NULL);
+                htmlErrMemory(ctxt);
 	    ctxt->input->cur = in;
 	    ctxt->input->col += count;
 	    return(ret);
@@ -2659,7 +2646,7 @@ htmlParseNameComplex(xmlParserCtxtPtr ctxt) {
 
     ret = xmlDictLookup(ctxt->dict, ctxt->input->cur - len, len);
     if (ret == NULL)
-        htmlErrMemory(ctxt, NULL);
+        htmlErrMemory(ctxt);
 
     return(ret);
 }
@@ -2694,7 +2681,7 @@ htmlParseHTMLAttribute(htmlParserCtxtPtr ctxt, const xmlChar stop) {
     buffer_size = HTML_PARSER_BUFFER_SIZE;
     buffer = (xmlChar *) xmlMallocAtomic(buffer_size);
     if (buffer == NULL) {
-	htmlErrMemory(ctxt, "buffer allocation failed\n");
+	htmlErrMemory(ctxt);
 	return(NULL);
     }
     out = buffer;
@@ -2959,7 +2946,7 @@ htmlParseSystemLiteral(htmlParserCtxtPtr ctxt) {
         if (err == 0) {
             ret = xmlStrndup((BASE_PTR+startPosition), len);
             if (ret == NULL) {
-                htmlErrMemory(ctxt, NULL);
+                htmlErrMemory(ctxt);
                 return(NULL);
             }
         }
@@ -3020,7 +3007,7 @@ htmlParsePubidLiteral(htmlParserCtxtPtr ctxt) {
         if (err == 0) {
             ret = xmlStrndup((BASE_PTR + startPosition), len);
             if (ret == NULL) {
-                htmlErrMemory(ctxt, NULL);
+                htmlErrMemory(ctxt);
                 return(NULL);
             }
         }
@@ -3330,7 +3317,7 @@ htmlParsePI(htmlParserCtxtPtr ctxt) {
 	    }
 	    buf = (xmlChar *) xmlMallocAtomic(size);
 	    if (buf == NULL) {
-		htmlErrMemory(ctxt, NULL);
+		htmlErrMemory(ctxt);
 		return;
 	    }
 	    cur = CUR;
@@ -3347,7 +3334,7 @@ htmlParsePI(htmlParserCtxtPtr ctxt) {
 		    size *= 2;
 		    tmp = (xmlChar *) xmlRealloc(buf, size);
 		    if (tmp == NULL) {
-			htmlErrMemory(ctxt, NULL);
+			htmlErrMemory(ctxt);
 			xmlFree(buf);
 			return;
 		    }
@@ -3428,7 +3415,7 @@ htmlParseComment(htmlParserCtxtPtr ctxt) {
     SKIP(4);
     buf = (xmlChar *) xmlMallocAtomic(size);
     if (buf == NULL) {
-        htmlErrMemory(ctxt, "buffer allocation failed\n");
+        htmlErrMemory(ctxt);
 	return;
     }
     len = 0;
@@ -3472,7 +3459,7 @@ htmlParseComment(htmlParserCtxtPtr ctxt) {
 	    tmp = (xmlChar *) xmlRealloc(buf, size);
 	    if (tmp == NULL) {
 	        xmlFree(buf);
-	        htmlErrMemory(ctxt, "growing buffer failed\n");
+	        htmlErrMemory(ctxt);
 		return;
 	    }
 	    buf = tmp;
@@ -3746,7 +3733,7 @@ htmlCheckEncoding(htmlParserCtxtPtr ctxt, const xmlChar *attvalue) {
 	encoding ++;
         copy = xmlStrdup(encoding);
         if (copy == NULL)
-            htmlErrMemory(ctxt, NULL);
+            htmlErrMemory(ctxt);
 	xmlSetDeclaredEncoding(ctxt, copy);
     }
 }
@@ -3781,7 +3768,7 @@ htmlCheckMeta(htmlParserCtxtPtr ctxt, const xmlChar **atts) {
 
                 copy = xmlStrdup(value);
                 if (copy == NULL)
-                    htmlErrMemory(ctxt, NULL);
+                    htmlErrMemory(ctxt);
                 xmlSetDeclaredEncoding(ctxt, copy);
             } else if (!xmlStrcasecmp(att, BAD_CAST "content")) {
                 content = value;
@@ -3926,7 +3913,7 @@ htmlParseStartTag(htmlParserCtxtPtr ctxt) {
 	        atts = (const xmlChar **)
 		       xmlMalloc(maxatts * sizeof(xmlChar *));
 		if (atts == NULL) {
-		    htmlErrMemory(ctxt, NULL);
+		    htmlErrMemory(ctxt);
 		    if (attvalue != NULL)
 			xmlFree(attvalue);
 		    goto failed;
@@ -3940,7 +3927,7 @@ htmlParseStartTag(htmlParserCtxtPtr ctxt) {
 	        n = (const xmlChar **) xmlRealloc((void *) atts,
 					     maxatts * sizeof(const xmlChar *));
 		if (n == NULL) {
-		    htmlErrMemory(ctxt, NULL);
+		    htmlErrMemory(ctxt);
 		    if (attvalue != NULL)
 			xmlFree(attvalue);
 		    goto failed;
@@ -4591,7 +4578,7 @@ htmlParseContentInternal(htmlParserCtxtPtr ctxt) {
     } else {
         currentNode = xmlStrdup(ctxt->name);
         if (currentNode == NULL) {
-            htmlErrMemory(ctxt, NULL);
+            htmlErrMemory(ctxt);
             return;
         }
     }
@@ -4613,7 +4600,7 @@ htmlParseContentInternal(htmlParserCtxtPtr ctxt) {
                 } else {
                     currentNode = xmlStrdup(ctxt->name);
                     if (currentNode == NULL) {
-                        htmlErrMemory(ctxt, NULL);
+                        htmlErrMemory(ctxt);
                         break;
                     }
                 }
@@ -4642,7 +4629,7 @@ htmlParseContentInternal(htmlParserCtxtPtr ctxt) {
                 } else {
                     currentNode = xmlStrdup(ctxt->name);
                     if (currentNode == NULL) {
-                        htmlErrMemory(ctxt, NULL);
+                        htmlErrMemory(ctxt);
                         break;
                     }
                 }
@@ -4673,7 +4660,7 @@ htmlParseContentInternal(htmlParserCtxtPtr ctxt) {
             } else {
                 currentNode = xmlStrdup(ctxt->name);
                 if (currentNode == NULL) {
-                    htmlErrMemory(ctxt, NULL);
+                    htmlErrMemory(ctxt);
                     break;
                 }
             }
@@ -4732,7 +4719,7 @@ htmlParseContentInternal(htmlParserCtxtPtr ctxt) {
             } else {
                 currentNode = xmlStrdup(ctxt->name);
                 if (currentNode == NULL) {
-                    htmlErrMemory(ctxt, NULL);
+                    htmlErrMemory(ctxt);
                     break;
                 }
             }
@@ -4901,7 +4888,7 @@ htmlParseDocument(htmlParserCtxtPtr ctxt) {
 		    BAD_CAST "-//W3C//DTD HTML 4.0 Transitional//EN",
 		    BAD_CAST "http://www.w3.org/TR/REC-html40/loose.dtd");
             if (ctxt->myDoc->intSubset == NULL)
-                htmlErrMemory(ctxt, NULL);
+                htmlErrMemory(ctxt);
         }
     }
     if (! ctxt->wellFormed) return(-1);
@@ -5786,7 +5773,7 @@ done:
 		    BAD_CAST "-//W3C//DTD HTML 4.0 Transitional//EN",
 		    BAD_CAST "http://www.w3.org/TR/REC-html40/loose.dtd");
             if (ctxt->myDoc->intSubset == NULL)
-                htmlErrMemory(ctxt, NULL);
+                htmlErrMemory(ctxt);
         }
     }
     return(ret);
@@ -6722,7 +6709,7 @@ htmlCtxtReadMemory(htmlParserCtxtPtr ctxt, const char *buffer, int size,
     input = xmlParserInputBufferCreateStatic(buffer, size,
                                              XML_CHAR_ENCODING_NONE);
     if (input == NULL) {
-        htmlErrMemory(ctxt, NULL);
+        htmlErrMemory(ctxt);
 	return(NULL);
     }
 
@@ -6768,6 +6755,7 @@ htmlCtxtReadFd(htmlParserCtxtPtr ctxt, int fd,
     input = xmlParserInputBufferCreateFd(fd, XML_CHAR_ENCODING_NONE);
     if (input == NULL)
         return (NULL);
+    input->closecallback = NULL;
     stream = xmlNewIOInputStream(ctxt, input, XML_CHAR_ENCODING_NONE);
     if (stream == NULL) {
         xmlFreeParserInputBuffer(input);

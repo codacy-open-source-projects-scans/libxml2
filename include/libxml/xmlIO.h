@@ -321,6 +321,7 @@ xmlOutputBufferPtr
 
 #ifdef LIBXML_HTTP_ENABLED
 /*  This function only exists if HTTP support built into the library  */
+XML_DEPRECATED
 XMLPUBFUN void
 	xmlRegisterHTTPPostCallbacks	(void );
 #endif /* LIBXML_HTTP_ENABLED */
@@ -346,19 +347,24 @@ XMLPUBFUN xmlParserInputPtr
 XMLPUBFUN xmlChar *
 	xmlNormalizeWindowsPath		(const xmlChar *path);
 
+XML_DEPRECATED
 XMLPUBFUN int
 	xmlCheckFilename		(const char *path);
 /**
  * Default 'file://' protocol callbacks
  */
+XML_DEPRECATED
 XMLPUBFUN int
 	xmlFileMatch			(const char *filename);
+XML_DEPRECATED
 XMLPUBFUN void *
 	xmlFileOpen			(const char *filename);
+XML_DEPRECATED
 XMLPUBFUN int
 	xmlFileRead			(void * context,
 					 char * buffer,
 					 int len);
+XML_DEPRECATED
 XMLPUBFUN int
 	xmlFileClose			(void * context);
 

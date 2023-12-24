@@ -6,12 +6,15 @@
 #include <libxml/xmlversion.h>
 
 XML_HIDDEN void
-__xmlIOErr(int domain, int code, const char *extra);
-XML_HIDDEN void
-xmlLoaderErr(xmlParserCtxtPtr ctxt, const char *msg,
-             const char *filename) LIBXML_ATTR_FORMAT(2,0);
+xmlInitIOCallbacks(void);
 
-xmlParserInputBufferPtr
+XML_HIDDEN int
+__xmlIOErr(int domain, int code, const char *extra);
+
+XML_HIDDEN int
+xmlParserInputBufferCreateFilenameSafe(const char *URI, xmlCharEncoding enc,
+                                       xmlParserInputBufferPtr *out);
+XML_HIDDEN xmlParserInputBufferPtr
 xmlParserInputBufferCreateString(const xmlChar *str);
 
 #ifdef LIBXML_OUTPUT_ENABLED
