@@ -286,7 +286,6 @@ xmlSAX2ExternalSubset(void *ctx, const xmlChar *name,
 	xmlParserInputPtr *oldinputTab;
 	xmlParserInputPtr input = NULL;
 	const xmlChar *oldencoding;
-	int oldprogressive;
         unsigned long consumed;
         size_t buffered;
 
@@ -314,9 +313,7 @@ xmlSAX2ExternalSubset(void *ctx, const xmlChar *name,
 	oldinputMax = ctxt->inputMax;
 	oldinputTab = ctxt->inputTab;
 	oldencoding = ctxt->encoding;
-        oldprogressive = ctxt->progressive;
 	ctxt->encoding = NULL;
-        ctxt->progressive = 0;
 
 	ctxt->inputTab = (xmlParserInputPtr *)
 	                 xmlMalloc(5 * sizeof(xmlParserInputPtr));
@@ -328,7 +325,6 @@ xmlSAX2ExternalSubset(void *ctx, const xmlChar *name,
 	    ctxt->inputMax = oldinputMax;
 	    ctxt->inputTab = oldinputTab;
 	    ctxt->encoding = oldencoding;
-            ctxt->progressive = oldprogressive;
 	    return;
 	}
 	ctxt->inputNr = 0;
@@ -382,7 +378,6 @@ xmlSAX2ExternalSubset(void *ctx, const xmlChar *name,
 	     (!xmlDictOwns(ctxt->dict, ctxt->encoding))))
 	    xmlFree((xmlChar *) ctxt->encoding);
 	ctxt->encoding = oldencoding;
-        ctxt->progressive = oldprogressive;
 	/* ctxt->wellFormed = oldwellFormed; */
     }
 }
@@ -412,8 +407,6 @@ xmlSAX2ResolveEntity(void *ctx, const xmlChar *publicId, const xmlChar *systemId
     if (ctx == NULL) return(NULL);
     if (ctxt->input != NULL)
 	base = ctxt->input->filename;
-    if (base == NULL)
-	base = ctxt->directory;
 
     if (xmlBuildURISafe(systemId, (const xmlChar *) base, &URI) < 0)
         xmlSAX2ErrMemory(ctxt);
@@ -556,8 +549,6 @@ xmlSAX2EntityDecl(void *ctx, const xmlChar *name, int type,
 
         if (ctxt->input != NULL)
             base = ctxt->input->filename;
-        if (base == NULL)
-            base = ctxt->directory;
 
         if (base != NULL) {
             if (xmlBuildURISafe(systemId, (const xmlChar *) base, &URI) < 0)
@@ -1223,8 +1214,6 @@ xmlSAX2AttributeInternal(void *ctx, const xmlChar *fullname,
     } else
 #endif /* LIBXML_VALID_ENABLED */
            if (((ctxt->loadsubset & XML_SKIP_IDS) == 0) &&
-	       (((ctxt->replaceEntities == 0) && (ctxt->external != 2)) ||
-	        ((ctxt->replaceEntities != 0) && (ctxt->inSubset == 0))) &&
                /* Don't create IDs containing entity references */
                (ret->children != NULL) &&
                (ret->children->type == XML_TEXT_NODE) &&
@@ -1959,8 +1948,6 @@ xmlSAX2AttributeNs(xmlParserCtxtPtr ctxt,
     } else
 #endif /* LIBXML_VALID_ENABLED */
            if (((ctxt->loadsubset & XML_SKIP_IDS) == 0) &&
-	       (((ctxt->replaceEntities == 0) && (ctxt->external != 2)) ||
-	        ((ctxt->replaceEntities != 0) && (ctxt->inSubset == 0))) &&
                /* Don't create IDs containing entity references */
                (ret->children != NULL) &&
                (ret->children->type == XML_TEXT_NODE) &&
@@ -2421,7 +2408,9 @@ xmlSAX2Text(xmlParserCtxtPtr ctxt, const xmlChar *ch, int len,
 	    }
             if ((ctxt->nodelen + len > XML_MAX_TEXT_LENGTH) &&
                 ((ctxt->options & XML_PARSE_HUGE) == 0)) {
-                xmlSAX2ErrMemory(ctxt);
+                xmlFatalErr(ctxt, XML_ERR_RESOURCE_LIMIT,
+                            "Text node too long, try XML_PARSE_HUGE");
+                xmlHaltParser(ctxt);
                 return;
             }
 	    if (ctxt->nodelen + len >= ctxt->nodemem) {

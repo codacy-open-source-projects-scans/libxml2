@@ -2078,7 +2078,6 @@ xmlNewTextReader(xmlParserInputBufferPtr input, const char *URI) {
     /*
      * use the parser dictionary to allocate all elements and attributes names
      */
-    ret->ctxt->docdict = 1;
     ret->dict = ret->ctxt->dict;
 #ifdef LIBXML_XINCLUDE_ENABLED
     ret->xinclude = 0;
@@ -2102,7 +2101,6 @@ xmlTextReaderPtr
 xmlNewTextReaderFilename(const char *URI) {
     xmlParserInputBufferPtr input;
     xmlTextReaderPtr ret;
-    char *directory = NULL;
 
     input = xmlParserInputBufferCreateFilename(URI, XML_CHAR_ENCODING_NONE);
     if (input == NULL)
@@ -2113,12 +2111,6 @@ xmlNewTextReaderFilename(const char *URI) {
 	return(NULL);
     }
     ret->allocs |= XML_TEXTREADER_INPUT;
-    if (ret->ctxt->directory == NULL)
-        directory = xmlParserGetDirectory(URI);
-    if ((ret->ctxt->directory == NULL) && (directory != NULL))
-        ret->ctxt->directory = (char *) xmlStrdup((xmlChar *) directory);
-    if (directory != NULL)
-	xmlFree(directory);
     return(ret);
 }
 
@@ -4894,7 +4886,6 @@ xmlTextReaderSetup(xmlTextReaderPtr reader,
     /*
      * use the parser dictionary to allocate all elements and attributes names
      */
-    reader->ctxt->docdict = 1;
     reader->ctxt->parseMode = XML_PARSE_READER;
 
 #ifdef LIBXML_XINCLUDE_ENABLED

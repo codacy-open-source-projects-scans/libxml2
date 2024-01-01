@@ -9,6 +9,33 @@
 
 #include <string.h>
 
+#ifdef LIBXML_SAX1_ENABLED
+static int
+testBalancedChunk(void) {
+    xmlNodePtr list;
+    xmlNodePtr elem;
+    int ret;
+    int err = 0;
+
+    ret = xmlParseBalancedChunkMemory(NULL, NULL, NULL, 0,
+            BAD_CAST "start <node xml:lang='en'>abc</node> end", &list);
+
+    if ((ret != XML_ERR_OK) ||
+        (list == NULL) ||
+        ((elem = list->next) == NULL) ||
+        (elem->type != XML_ELEMENT_NODE) ||
+        (elem->nsDef == NULL) ||
+        (!xmlStrEqual(elem->nsDef->href, XML_XML_NAMESPACE))) {
+        fprintf(stderr, "xmlParseBalancedChunkMemory failed\n");
+        err = 1;
+    }
+
+    xmlFreeNodeList(list);
+
+    return(err);
+}
+#endif
+
 #ifdef LIBXML_PUSH_ENABLED
 static int
 testHugePush(void) {
@@ -118,7 +145,7 @@ testReaderXIncludeError(void) {
         ;
 
     if (errorCtxt.message == NULL ||
-        strstr(errorCtxt.message, "failed") == NULL) {
+        strstr(errorCtxt.message, "href or xpointer") == NULL) {
         fprintf(stderr, "xmlTextReaderSetErrorHandler failed\n");
         err = 1;
     }
@@ -134,9 +161,9 @@ testReaderXIncludeError(void) {
     while (xmlTextReaderRead(reader) > 0)
         ;
 
-    if (errorCtxt.code != XML_XINCLUDE_HREF_URI ||
+    if (errorCtxt.code != XML_XINCLUDE_NO_HREF ||
         errorCtxt.message == NULL ||
-        strstr(errorCtxt.message, "failed") == NULL) {
+        strstr(errorCtxt.message, "href or xpointer") == NULL) {
         fprintf(stderr, "xmlTextReaderSetStructuredErrorHandler failed\n");
         err = 1;
     }
@@ -152,6 +179,9 @@ int
 main(void) {
     int err = 0;
 
+#ifdef LIBXML_SAX1_ENABLED
+    err |= testBalancedChunk();
+#endif
 #ifdef LIBXML_PUSH_ENABLED
     err |= testHugePush();
     err |= testHugeEncodedChunk();

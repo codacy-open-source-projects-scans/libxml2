@@ -60,11 +60,11 @@ struct _xmlParserInput {
     xmlParserInputBufferPtr buf;      /* UTF-8 encoded buffer */
 
     const char *filename;             /* The file analyzed, if any */
-    const char *directory;            /* the directory/base of the file */
+    const char *directory;            /* unused */
     const xmlChar *base;              /* Base of the array to parse */
     const xmlChar *cur;               /* Current char being parsed */
     const xmlChar *end;               /* end of the array to parse */
-    int length;                       /* length if known */
+    int length;                       /* unused */
     int line;                         /* Current line */
     int col;                          /* Current column */
     unsigned long consumed;           /* How many xmlChars already consumed */
@@ -220,16 +220,16 @@ struct _xmlParserCtxt {
 
     int     hasExternalSubset;        /* reference and external subset */
     int             hasPErefs;        /* the internal subset has PE refs */
-    int              external;        /* are we parsing an external entity */
+    int              external;        /* unused */
 
     int                 valid;        /* is the document valid */
     int              validate;        /* shall we try to validate ? */
     xmlValidCtxt        vctxt;        /* The validity context */
 
-    xmlParserInputState instate;      /* current type of input */
+    xmlParserInputState instate;      /* push parser state */
     int                 token;        /* next char look-ahead */
 
-    char           *directory;        /* the data directory */
+    char           *directory;        /* unused */
 
     /* Node name stack */
     const xmlChar     *name;          /* Current parsed Node */
@@ -253,7 +253,7 @@ struct _xmlParserCtxt {
     int *              spaceTab;      /* array of space infos */
 
     int                depth;         /* to prevent entity substitution loops */
-    xmlParserInputPtr  entity;        /* used to check entities boundaries */
+    xmlParserInputPtr  entity;        /* unused */
     int                charset;       /* unused */
     int                nodelen;       /* Those two fields are there to */
     int                nodemem;       /* Speed up large node parsing */
@@ -264,11 +264,11 @@ struct _xmlParserCtxt {
     int                linenumbers;   /* set line number in element content */
     void              *catalogs;      /* document's own catalog */
     int                recovery;      /* run in recovery mode */
-    int                progressive;   /* is this a progressive parsing */
+    int                progressive;   /* unused */
     xmlDictPtr         dict;          /* dictionary for the parser */
     const xmlChar *   *atts;          /* array for the attributes callbacks */
     int                maxatts;       /* the size of the array */
-    int                docdict;       /* use strings from dict to build tree */
+    int                docdict;       /* unused */
 
     /*
      * pre-interned strings
@@ -306,7 +306,7 @@ struct _xmlParserCtxt {
     xmlError          lastError;
     xmlParserMode     parseMode;    /* the parser mode */
     unsigned long    nbentities;    /* unused */
-    unsigned long  sizeentities;    /* size of parsed entities */
+    unsigned long  sizeentities;    /* size of external entities */
 
     /* for use by HTML non-recursive parser */
     xmlParserNodeInfo *nodeInfo;      /* Current NodeInfo */
@@ -1310,6 +1310,8 @@ XMLPUBFUN xmlDocPtr
 					 const char *encoding,
 					 int options);
 XMLPUBFUN xmlDocPtr
+		xmlCtxtParseDocument	(xmlParserCtxtPtr ctxt);
+XMLPUBFUN xmlDocPtr
 		xmlCtxtReadDoc		(xmlParserCtxtPtr ctxt,
 					 const xmlChar *cur,
 					 const char *URL,
@@ -1341,6 +1343,46 @@ XMLPUBFUN xmlDocPtr
 					 const char *URL,
 					 const char *encoding,
 					 int options);
+
+/**
+ * New input API (2.9.13)
+ */
+
+#define XML_INPUT_BUF_STATIC		(1u << 1)
+#define XML_INPUT_BUF_ZERO_TERMINATED	(1u << 2)
+
+XMLPUBFUN xmlParserInputPtr
+		xmlNewInputURL		(xmlParserCtxtPtr ctxt,
+					 const char *url,
+					 const char *publicId,
+					 const char *encoding,
+					 int flags);
+XMLPUBFUN xmlParserInputPtr
+		xmlNewInputMemory	(xmlParserCtxtPtr ctxt,
+					 const char *filename,
+					 const void *mem, size_t size,
+					 const char *encoding,
+					 int flags);
+XMLPUBFUN xmlParserInputPtr
+		xmlNewInputString	(xmlParserCtxtPtr ctxt,
+					 const char *filename,
+					 const char *str,
+					 const char *encoding,
+					 int flags);
+XMLPUBFUN xmlParserInputPtr
+		xmlNewInputFd		(xmlParserCtxtPtr ctxt,
+					 const char *filename,
+					 int fd,
+					 const char *encoding,
+					 int flags);
+XMLPUBFUN xmlParserInputPtr
+		xmlNewInputIO		(xmlParserCtxtPtr ctxt,
+					 const char *url,
+					 xmlInputReadCallback ioRead,
+					 xmlInputCloseCallback ioClose,
+					 void *ioCtxt,
+					 const char *encoding,
+					 int flags);
 
 /*
  * Library wide options
