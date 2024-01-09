@@ -330,15 +330,13 @@ xmlXIncludeParseFile(xmlXIncludeCtxtPtr ctxt, const char *URL) {
 	xmlDictReference(pctxt->dict);
     }
 
-    xmlCtxtUseOptions(pctxt, ctxt->parseFlags | XML_PARSE_DTDLOAD);
+    xmlCtxtUseOptions(pctxt, ctxt->parseFlags);
 
     inputStream = xmlLoadExternalEntity(URL, NULL, pctxt);
     if (inputStream == NULL)
         goto error;
 
     inputPush(pctxt, inputStream);
-
-    pctxt->loadsubset |= XML_DETECT_IDS;
 
     xmlParseDocument(pctxt);
 
@@ -1609,7 +1607,8 @@ xmlXIncludeLoadTxt(xmlXIncludeCtxtPtr ctxt, xmlXIncludeRefPtr ref) {
 	encoding = xmlXIncludeGetProp(ctxt, ref->elem, XINCLUDE_PARSE_ENCODING);
     }
     if (encoding != NULL) {
-        res = xmlOpenCharEncodingHandler((const char *) encoding, &handler);
+        res = xmlOpenCharEncodingHandler((const char *) encoding,
+                                         /* output */ 0, &handler);
 
         if (res != 0) {
             if (res == XML_ERR_NO_MEMORY) {
@@ -2193,7 +2192,7 @@ xmlXIncludeDoProcessRoot(xmlXIncludeCtxtPtr ctxt, xmlNodePtr tree) {
 int
 xmlXIncludeGetLastError(xmlXIncludeCtxtPtr ctxt) {
     if (ctxt == NULL)
-        return(XML_ERR_INTERNAL_ERROR);
+        return(XML_ERR_ARGUMENT);
     return(ctxt->errNo);
 }
 

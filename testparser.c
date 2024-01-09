@@ -6,8 +6,37 @@
 
 #include <libxml/parser.h>
 #include <libxml/xmlreader.h>
+#include <libxml/xmlwriter.h>
 
 #include <string.h>
+
+static int
+testUnsupportedEncoding(void) {
+    xmlDocPtr doc;
+    const xmlError *error;
+    int err = 0;
+
+    xmlResetLastError();
+
+    doc = xmlReadDoc(BAD_CAST "<doc/>", NULL, "#unsupported",
+                     XML_PARSE_NOWARNING);
+    if (doc == NULL) {
+        fprintf(stderr, "xmlReadDoc failed with unsupported encoding\n");
+        err = 1;
+    }
+    xmlFreeDoc(doc);
+
+    error = xmlGetLastError();
+    if (error->code != XML_ERR_UNSUPPORTED_ENCODING ||
+        error->level != XML_ERR_WARNING ||
+        strcmp(error->message, "Unsupported encoding: #unsupported\n") != 0)
+    {
+        fprintf(stderr, "xmlReadDoc failed to raise correct error\n");
+        err = 1;
+    }
+
+    return err;
+}
 
 #ifdef LIBXML_SAX1_ENABLED
 static int
@@ -175,10 +204,54 @@ testReaderXIncludeError(void) {
 }
 #endif
 
+#ifdef LIBXML_WRITER_ENABLED
+static int
+testWriterIOWrite(void *ctxt, const char *data, int len) {
+    (void) ctxt;
+    (void) data;
+
+    return len;
+}
+
+static int
+testWriterIOClose(void *ctxt) {
+    (void) ctxt;
+
+    return XML_IO_ENAMETOOLONG;
+}
+
+static int
+testWriterClose(void){
+    xmlOutputBufferPtr out;
+    xmlTextWriterPtr writer;
+    int err = 0;
+    int result;
+
+    out = xmlOutputBufferCreateIO(testWriterIOWrite, testWriterIOClose,
+                                  NULL, NULL);
+    writer = xmlNewTextWriter(out);
+    xmlTextWriterStartDocument(writer, "1.0", "UTF-8", NULL);
+    xmlTextWriterStartElement(writer, BAD_CAST "elem");
+    xmlTextWriterEndElement(writer);
+    xmlTextWriterEndDocument(writer);
+    result = xmlTextWriterClose(writer);
+
+    if (result != XML_IO_ENAMETOOLONG) {
+        fprintf(stderr, "xmlTextWriterClose reported wrong error %d\n",
+                result);
+        err = 1;
+    }
+
+    xmlFreeTextWriter(writer);
+    return err;
+}
+#endif
+
 int
 main(void) {
     int err = 0;
 
+    err |= testUnsupportedEncoding();
 #ifdef LIBXML_SAX1_ENABLED
     err |= testBalancedChunk();
 #endif
@@ -188,6 +261,9 @@ main(void) {
 #endif
 #if defined(LIBXML_READER_ENABLED) && defined(LIBXML_XINCLUDE_ENABLED)
     err |= testReaderXIncludeError();
+#endif
+#ifdef LIBXML_WRITER_ENABLED
+    err |= testWriterClose();
 #endif
 
     return err;

@@ -4,6 +4,7 @@
  * See Copyright for the status of this software.
  */
 
+#include <libxml/catalog.h>
 #include <libxml/parser.h>
 #include <libxml/xpointer.h>
 #include "fuzz.h"
@@ -13,6 +14,10 @@ LLVMFuzzerInitialize(int *argc ATTRIBUTE_UNUSED,
                      char ***argv ATTRIBUTE_UNUSED) {
     xmlFuzzMemSetup();
     xmlInitParser();
+#ifdef LIBXML_CATALOG_ENABLED
+    xmlInitializeCatalog();
+    xmlCatalogSetDefaults(XML_CATA_ALLOW_NONE);
+#endif
     xmlSetGenericErrorFunc(NULL, xmlFuzzErrorFunc);
 
     return 0;

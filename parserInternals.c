@@ -175,11 +175,9 @@ xmlCtxtErrIO(xmlParserCtxtPtr ctxt, int code, const char *uri)
     if (ctxt == NULL)
         return;
 
-    if (code == XML_ERR_UNSUPPORTED_ENCODING) {
-        level = XML_ERR_WARNING;
-    } else if ((code == XML_IO_ENOENT) ||
-               (code == XML_IO_NETWORK_ATTEMPT) ||
-               (code == XML_IO_UNKNOWN)) {
+    if ((code == XML_IO_ENOENT) ||
+        (code == XML_IO_NETWORK_ATTEMPT) ||
+        (code == XML_IO_UNKNOWN)) {
         if (ctxt->validate == 0)
             level = XML_ERR_WARNING;
         else
@@ -318,37 +316,26 @@ xmlCtxtErr(xmlParserCtxtPtr ctxt, xmlNodePtr node, xmlErrorDomain domain,
  * Handle a fatal parser error, i.e. violating Well-Formedness constraints
  */
 void
-xmlFatalErr(xmlParserCtxtPtr ctxt, xmlParserErrors error, const char *info)
+xmlFatalErr(xmlParserCtxtPtr ctxt, xmlParserErrors code, const char *info)
 {
     const char *errmsg;
+    xmlErrorLevel level;
 
-    errmsg = xmlErrString(error);
+    if (code == XML_ERR_UNSUPPORTED_ENCODING)
+        level = XML_ERR_WARNING;
+    else
+        level = XML_ERR_FATAL;
+
+    errmsg = xmlErrString(code);
 
     if (info == NULL) {
-        xmlCtxtErr(ctxt, NULL, XML_FROM_PARSER, error, XML_ERR_FATAL,
+        xmlCtxtErr(ctxt, NULL, XML_FROM_PARSER, code, level,
                    NULL, NULL, NULL, 0, "%s\n", errmsg);
     } else {
-        xmlCtxtErr(ctxt, NULL, XML_FROM_PARSER, error, XML_ERR_FATAL,
+        xmlCtxtErr(ctxt, NULL, XML_FROM_PARSER, code, level,
                    (const xmlChar *) info, NULL, NULL, 0,
                    "%s: %s\n", errmsg, info);
     }
-}
-
-/**
- * xmlErrEncodingInt:
- * @ctxt:  an XML parser context
- * @error:  the error number
- * @msg:  the error message
- * @val:  an integer value
- *
- * n encoding error
- */
-static void LIBXML_ATTR_FORMAT(3,0)
-xmlErrEncodingInt(xmlParserCtxtPtr ctxt, xmlParserErrors error,
-                  const char *msg, int val)
-{
-    xmlCtxtErr(ctxt, NULL, XML_FROM_PARSER, error, XML_ERR_FATAL,
-               NULL, NULL, NULL, val, msg, val);
 }
 
 /**
@@ -415,8 +402,11 @@ int
 xmlParserGrow(xmlParserCtxtPtr ctxt) {
     xmlParserInputPtr in = ctxt->input;
     xmlParserInputBufferPtr buf = in->buf;
-    ptrdiff_t curEnd = in->end - in->cur;
-    ptrdiff_t curBase = in->cur - in->base;
+    size_t curEnd = in->end - in->cur;
+    size_t curBase = in->cur - in->base;
+    size_t maxLength = (ctxt->options & XML_PARSE_HUGE) ?
+                       XML_MAX_HUGE_LENGTH :
+                       XML_MAX_LOOKUP_LIMIT;
     int ret;
 
     if (buf == NULL)
@@ -430,9 +420,7 @@ xmlParserGrow(xmlParserCtxtPtr ctxt) {
     if (buf->error != 0)
         return(-1);
 
-    if (((curEnd > XML_MAX_LOOKUP_LIMIT) ||
-         (curBase > XML_MAX_LOOKUP_LIMIT)) &&
-        ((ctxt->options & XML_PARSE_HUGE) == 0)) {
+    if (curBase > maxLength) {
         xmlFatalErr(ctxt, XML_ERR_RESOURCE_LIMIT,
                     "Buffer size limit exceeded, try XML_PARSE_HUGE\n");
         xmlHaltParser(ctxt);
@@ -761,8 +749,8 @@ xmlCurrentChar(xmlParserCtxtPtr ctxt, int *len) {
                      * TODO: Null bytes should be handled by callers,
                      * but this can be tricky.
                      */
-                    xmlErrEncodingInt(ctxt, XML_ERR_INVALID_CHAR,
-                            "Char 0x0 out of allowed range\n", c);
+                    xmlFatalErr(ctxt, XML_ERR_INVALID_CHAR,
+                            "Char 0x0 out of allowed range\n");
                 }
             } else {
                 *len = 1;
@@ -898,9 +886,10 @@ xmlCopyCharMultiByte(xmlChar *out, int val) {
 	else if (val < 0x10000) { *out++= (val >> 12) | 0xE0;  bits=  6;}
 	else if (val < 0x110000)  { *out++= (val >> 18) | 0xF0;  bits=  12; }
 	else {
-	    xmlErrEncodingInt(NULL, XML_ERR_INVALID_CHAR,
-		    "Internal error, xmlCopyCharMultiByte 0x%X out of bound\n",
-			      val);
+#ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+            fprintf(stderr, "xmlCopyCharMultiByte: codepoint out of range\n");
+            abort();
+#endif
 	    return(0);
 	}
 	for ( ; bits >= 0; bits-= 6)
@@ -994,7 +983,8 @@ xmlDetectEBCDIC(xmlParserInputPtr input, xmlCharEncodingHandlerPtr *hout) {
                 break;
             out[i] = 0;
             xmlCharEncCloseFunc(handler);
-            res = xmlOpenCharEncodingHandler((char *) out + start, &handler);
+            res = xmlOpenCharEncodingHandler((char *) out + start,
+                                             /* output */ 0, &handler);
             if (res != 0)
                 return(res);
             *hout = handler;
@@ -1084,7 +1074,7 @@ xmlSwitchInputEncodingName(xmlParserCtxtPtr ctxt, xmlParserInputPtr input,
     if (encoding == NULL)
         return(-1);
 
-    res = xmlOpenCharEncodingHandler(encoding, &handler);
+    res = xmlOpenCharEncodingHandler(encoding, /* output */ 0, &handler);
     if (res != 0) {
         xmlFatalErr(ctxt, res, encoding);
         return(-1);
@@ -1500,8 +1490,8 @@ xmlNewInputStream(xmlParserCtxtPtr ctxt) {
  *   - a file opened from the filesystem, with automatic detection
  *     of compressed files if support is compiled in.
  *
- * The returned input should be push onto the input stack with
- * xmlPushInput.
+ * The returned input can be passed to xmlCtxtParseDocument or
+ * htmlCtxtParseDocument.
  *
  * This function should not be invoked from user-defined resource
  * loaders to avoid infinite loops.
@@ -1560,12 +1550,8 @@ xmlNewInputInternal(xmlParserCtxtPtr ctxt, xmlParserInputBufferPtr buf,
         }
     }
 
-    if (encoding != NULL) {
-        if (xmlSwitchInputEncodingName(ctxt, input, encoding) < 0) {
-            xmlFreeInputStream(input);
-            return(NULL);
-        }
-    }
+    if (encoding != NULL)
+        xmlSwitchInputEncodingName(ctxt, input, encoding);
 
     return(input);
 }
@@ -1721,6 +1707,8 @@ xmlNewInputIO(xmlParserCtxtPtr ctxt, const char *url,
     buf = xmlAllocParserInputBuffer(XML_CHAR_ENCODING_NONE);
     if (buf == NULL) {
         xmlCtxtErrMemory(ctxt);
+        if (ioClose != NULL)
+            ioClose(ioCtxt);
         return(NULL);
     }
 
@@ -2273,7 +2261,6 @@ xmlInitSAXParserCtxt(xmlParserCtxtPtr ctxt, const xmlSAXHandler *sax,
     ctxt->hasPErefs = 0;
     ctxt->html = 0;
     ctxt->instate = XML_PARSER_START;
-    ctxt->token = 0;
 
     /* Allocate the Node stack */
     if (ctxt->nodeTab == NULL) {
@@ -2310,11 +2297,23 @@ xmlInitSAXParserCtxt(xmlParserCtxtPtr ctxt, const xmlSAXHandler *sax,
     ctxt->wellFormed = 1;
     ctxt->nsWellFormed = 1;
     ctxt->valid = 1;
+
+    ctxt->options = XML_PARSE_NODICT;
+
+    /*
+     * Initialize some parser options from deprecated global variables.
+     * Note that the "modern" API taking options arguments or
+     * xmlCtxtSetOptions will ignore these defaults. They're only
+     * relevant if old API functions like xmlParseFile are used.
+     */
     ctxt->loadsubset = xmlLoadExtDtdDefaultValue;
     if (ctxt->loadsubset) {
         ctxt->options |= XML_PARSE_DTDLOAD;
     }
     ctxt->validate = xmlDoValidityCheckingDefaultValue;
+    if (ctxt->validate) {
+        ctxt->options |= XML_PARSE_DTDVALID;
+    }
     ctxt->pedantic = xmlPedanticParserDefaultValue;
     if (ctxt->pedantic) {
         ctxt->options |= XML_PARSE_PEDANTIC;
@@ -2325,23 +2324,18 @@ xmlInitSAXParserCtxt(xmlParserCtxtPtr ctxt, const xmlSAXHandler *sax,
 	ctxt->sax->ignorableWhitespace = xmlSAX2IgnorableWhitespace;
 	ctxt->options |= XML_PARSE_NOBLANKS;
     }
+    ctxt->replaceEntities = xmlSubstituteEntitiesDefaultValue;
+    if (ctxt->replaceEntities) {
+        ctxt->options |= XML_PARSE_NOENT;
+    }
+    if (xmlGetWarningsDefaultValue == 0)
+        ctxt->options |= XML_PARSE_NOWARNING;
 
     ctxt->vctxt.flags = XML_VCTXT_USE_PCTXT;
     ctxt->vctxt.userData = ctxt;
     ctxt->vctxt.error = xmlParserValidityError;
     ctxt->vctxt.warning = xmlParserValidityWarning;
-    if (ctxt->validate) {
-	if (xmlGetWarningsDefaultValue == 0)
-	    ctxt->vctxt.warning = NULL;
-	else
-	    ctxt->vctxt.warning = xmlParserValidityWarning;
-	ctxt->vctxt.nodeMax = 0;
-        ctxt->options |= XML_PARSE_DTDVALID;
-    }
-    ctxt->replaceEntities = xmlSubstituteEntitiesDefaultValue;
-    if (ctxt->replaceEntities) {
-        ctxt->options |= XML_PARSE_NOENT;
-    }
+
     ctxt->record_info = 0;
     ctxt->checkIndex = 0;
     ctxt->inSubset = 0;

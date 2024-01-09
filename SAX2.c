@@ -274,8 +274,9 @@ xmlSAX2ExternalSubset(void *ctx, const xmlChar *name,
 {
     xmlParserCtxtPtr ctxt = (xmlParserCtxtPtr) ctx;
     if (ctx == NULL) return;
-    if (((ExternalID != NULL) || (SystemID != NULL)) &&
-        (((ctxt->validate) || (ctxt->loadsubset != 0)) &&
+    if ((SystemID != NULL) &&
+        ((ctxt->options & XML_PARSE_NO_XXE) == 0) &&
+        (((ctxt->validate) || (ctxt->loadsubset)) &&
 	 (ctxt->wellFormed && ctxt->myDoc))) {
 	/*
 	 * Try to fetch and parse the external subset.
@@ -970,10 +971,8 @@ xmlSAX2AttributeInternal(void *ctx, const xmlChar *fullname,
         (void) nsret;
 
         if (!ctxt->replaceEntities) {
-	    ctxt->depth++;
-	    val = xmlStringDecodeEntities(ctxt, value, XML_SUBSTITUTE_REF,
-		                          0,0,0);
-	    ctxt->depth--;
+            /* TODO: normalize if needed */
+	    val = xmlExpandEntitiesInAttValue(ctxt, value, /* normalize */ 0);
 	    if (val == NULL) {
 	        xmlSAX2ErrMemory(ctxt);
 		if (name != NULL)
@@ -1038,10 +1037,8 @@ xmlSAX2AttributeInternal(void *ctx, const xmlChar *fullname,
         (void) nsret;
 
         if (!ctxt->replaceEntities) {
-	    ctxt->depth++;
-	    val = xmlStringDecodeEntities(ctxt, value, XML_SUBSTITUTE_REF,
-		                          0,0,0);
-	    ctxt->depth--;
+            /* TODO: normalize if needed */
+	    val = xmlExpandEntitiesInAttValue(ctxt, value, /* normalize */ 0);
 	    if (val == NULL) {
 	        xmlSAX2ErrMemory(ctxt);
 	        xmlFree(ns);
@@ -1179,10 +1176,8 @@ xmlSAX2AttributeInternal(void *ctx, const xmlChar *fullname,
         if (!ctxt->replaceEntities) {
 	    xmlChar *val;
 
-	    ctxt->depth++;
-	    val = xmlStringDecodeEntities(ctxt, value, XML_SUBSTITUTE_REF,
-		                          0,0,0);
-	    ctxt->depth--;
+            /* TODO: normalize if needed */
+	    val = xmlExpandEntitiesInAttValue(ctxt, value, /* normalize */ 0);
 
 	    if (val == NULL)
 		ctxt->valid &= xmlValidateOneAttribute(&ctxt->vctxt,
@@ -1736,7 +1731,6 @@ static xmlChar *
 xmlSAX2DecodeAttrEntities(xmlParserCtxtPtr ctxt, const xmlChar *str,
                           const xmlChar *end) {
     const xmlChar *in;
-    xmlChar *ret;
 
     in = str;
     while (in < end)
@@ -1744,11 +1738,12 @@ xmlSAX2DecodeAttrEntities(xmlParserCtxtPtr ctxt, const xmlChar *str,
 	    goto decode;
     return(NULL);
 decode:
-    ctxt->depth++;
-    ret = xmlStringLenDecodeEntities(ctxt, str, end - str,
-				     XML_SUBSTITUTE_REF, 0,0,0);
-    ctxt->depth--;
-    return(ret);
+    /*
+     * If the value contains '&', we can be sure it was allocated and is
+     * zero-terminated.
+     */
+    /* TODO: normalize if needed */
+    return(xmlExpandEntitiesInAttValue(ctxt, str, /* normalize */ 0));
 }
 #endif /* LIBXML_VALID_ENABLED */
 
@@ -2384,6 +2379,10 @@ xmlSAX2Text(xmlParserCtxtPtr ctxt, const xmlChar *ch, int len,
 	    ((type != XML_TEXT_NODE) ||
              (lastChild->name == xmlStringText));
 	if ((coalesceText) && (ctxt->nodemem != 0)) {
+            int maxLength = (ctxt->options & XML_PARSE_HUGE) ?
+                            XML_MAX_HUGE_LENGTH :
+                            XML_MAX_TEXT_LENGTH;
+
 	    /*
 	     * The whole point of maintaining nodelen and nodemem,
 	     * xmlTextConcat is too costly, i.e. compute length,
@@ -2402,12 +2401,7 @@ xmlSAX2Text(xmlParserCtxtPtr ctxt, const xmlChar *ch, int len,
 		xmlSAX2ErrMemory(ctxt);
 		return;
  	    }
-	    if (ctxt->nodelen > INT_MAX - len) {
-                xmlSAX2ErrMemory(ctxt);
-                return;
-	    }
-            if ((ctxt->nodelen + len > XML_MAX_TEXT_LENGTH) &&
-                ((ctxt->options & XML_PARSE_HUGE) == 0)) {
+            if ((len > maxLength) || (ctxt->nodelen > maxLength - len)) {
                 xmlFatalErr(ctxt, XML_ERR_RESOURCE_LIMIT,
                             "Text node too long, try XML_PARSE_HUGE");
                 xmlHaltParser(ctxt);

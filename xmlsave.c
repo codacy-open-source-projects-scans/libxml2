@@ -9,6 +9,7 @@
 #define IN_LIBXML
 #include "libxml.h"
 
+#include <stdlib.h>
 #include <string.h>
 #include <libxml/xmlmemory.h>
 #include <libxml/parserInternals.h>
@@ -58,8 +59,10 @@ struct _xmlSaveCtxt {
  * Handle an out of memory condition
  */
 static void
-xmlSaveErrMemory(void)
+xmlSaveErrMemory(xmlOutputBufferPtr out)
 {
+    if (out != NULL)
+        out->error = XML_ERR_NO_MEMORY;
     xmlRaiseMemoryError(NULL, NULL, NULL, XML_FROM_OUTPUT, NULL);
 }
 
@@ -72,10 +75,23 @@ xmlSaveErrMemory(void)
  * Handle an out of memory condition
  */
 static void
-xmlSaveErr(int code, xmlNodePtr node, const char *extra)
+xmlSaveErr(xmlOutputBufferPtr out, int code, xmlNodePtr node,
+           const char *extra)
 {
     const char *msg = NULL;
     int res;
+
+    /* Don't overwrite memory errors */
+    if ((out != NULL) && (out->error == XML_ERR_NO_MEMORY))
+        return;
+
+    if (code == XML_ERR_NO_MEMORY) {
+        xmlSaveErrMemory(out);
+        return;
+    }
+
+    if (out != NULL)
+        out->error = code;
 
     switch(code) {
         case XML_SAVE_NOT_UTF8:
@@ -99,7 +115,7 @@ xmlSaveErr(int code, xmlNodePtr node, const char *extra)
                           extra, NULL, NULL, 0, 0,
                           msg, extra);
     if (res < 0)
-        xmlSaveErrMemory();
+        xmlSaveErrMemory(out);
 }
 
 /************************************************************************
@@ -200,78 +216,56 @@ xmlEscapeEntities(unsigned char* out, int *outlen,
 	    *out++ = ';';
 	    in++;
 	    continue;
+	} else if (*in == 0xD) {
+	    if (outend - out < 5) break;
+	    *out++ = '&';
+	    *out++ = '#';
+	    *out++ = 'x';
+	    *out++ = 'D';
+	    *out++ = ';';
+	    in++;
 	} else if (((*in >= 0x20) && (*in < 0x80)) ||
-	           (*in == '\n') || (*in == '\t')) {
+	           (*in == 0xA) || (*in == 0x9)) {
 	    /*
 	     * default case, just copy !
 	     */
 	    *out++ = *in++;
 	    continue;
-	} else if (*in >= 0x80) {
-	    /*
-	     * We assume we have UTF-8 input.
-	     */
+	} else if (*in < 0x80) {
+            /* invalid control char */
+	    if (outend - out < 8) break;
+	    out = xmlSerializeHexCharRef(out, 0xFFFD);
+	    in++;
+	} else {
+            int len;
+
 	    if (outend - out < 11) break;
 
-	    if (*in < 0xC0) {
-		xmlSaveErr(XML_SAVE_NOT_UTF8, NULL, NULL);
-		in++;
-		goto error;
-	    } else if (*in < 0xE0) {
-		if (inend - in < 2) break;
-		val = (in[0]) & 0x1F;
-		val <<= 6;
-		val |= (in[1]) & 0x3F;
-		in += 2;
-	    } else if (*in < 0xF0) {
-		if (inend - in < 3) break;
-		val = (in[0]) & 0x0F;
-		val <<= 6;
-		val |= (in[1]) & 0x3F;
-		val <<= 6;
-		val |= (in[2]) & 0x3F;
-		in += 3;
-	    } else if (*in < 0xF8) {
-		if (inend - in < 4) break;
-		val = (in[0]) & 0x07;
-		val <<= 6;
-		val |= (in[1]) & 0x3F;
-		val <<= 6;
-		val |= (in[2]) & 0x3F;
-		val <<= 6;
-		val |= (in[3]) & 0x3F;
-		in += 4;
-	    } else {
-		xmlSaveErr(XML_SAVE_CHAR_INVALID, NULL, NULL);
-		in++;
-		goto error;
-	    }
-	    if (!IS_CHAR(val)) {
-		xmlSaveErr(XML_SAVE_CHAR_INVALID, NULL, NULL);
-		in++;
-		goto error;
-	    }
+            len = inend - in;
+            val = xmlGetUTF8Char(in, &len);
+
+            if (val < 0) {
+#ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+                fprintf(stderr, "xmlEscapeEntities: invalid UTF-8\n");
+                abort();
+#endif
+                val = 0xFFFD;
+                in++;
+            } else {
+                if (!IS_CHAR(val))
+                    val = 0xFFFD;
+                in += len;
+            }
 
 	    /*
 	     * We could do multiple things here. Just save as a char ref
 	     */
 	    out = xmlSerializeHexCharRef(out, val);
-	} else if (IS_BYTE_CHAR(*in)) {
-	    if (outend - out < 6) break;
-	    out = xmlSerializeHexCharRef(out, *in++);
-	} else {
-	    xmlSaveErr(XML_SAVE_CHAR_INVALID, NULL, NULL);
-	    in++;
-	    goto error;
 	}
     }
     *outlen = out - outstart;
     *inlen = in - base;
     return(0);
-error:
-    *outlen = out - outstart;
-    *inlen = in - base;
-    return(-1);
 }
 
 /************************************************************************
@@ -341,15 +335,18 @@ xmlNewSaveCtxt(const char *encoding, int options)
 
     ret = (xmlSaveCtxtPtr) xmlMalloc(sizeof(xmlSaveCtxt));
     if (ret == NULL) {
-	xmlSaveErrMemory();
+	xmlSaveErrMemory(NULL);
 	return ( NULL );
     }
     memset(ret, 0, sizeof(xmlSaveCtxt));
 
     if (encoding != NULL) {
-        ret->handler = xmlFindCharEncodingHandler(encoding);
+        int res;
+
+        res = xmlOpenCharEncodingHandler(encoding, /* output */ 1,
+                                         &ret->handler);
 	if (ret->handler == NULL) {
-	    xmlSaveErr(XML_SAVE_UNKNOWN_ENCODING, NULL, encoding);
+	    xmlSaveErr(NULL, res, NULL, encoding);
             xmlFreeSaveCtxt(ret);
 	    return(NULL);
 	}
@@ -514,20 +511,15 @@ static int xmlSaveSwitchEncoding(xmlSaveCtxtPtr ctxt, const char *encoding) {
         xmlCharEncodingHandler *handler;
         int res;
 
-	res = xmlOpenCharEncodingHandler(encoding, &handler);
-        if (res != 0) {
-            if (res < 0)
-                xmlSaveErrMemory();
-            else
-                xmlSaveErr(XML_SAVE_UNKNOWN_ENCODING, NULL, encoding);
-            buf->error = res;
+	res = xmlOpenCharEncodingHandler(encoding, /* output */ 1, &handler);
+        if (handler == NULL) {
+            xmlSaveErr(buf, res, NULL, encoding);
             return(-1);
         }
 	buf->conv = xmlBufCreate();
 	if (buf->conv == NULL) {
 	    xmlCharEncCloseFunc(handler);
-            xmlSaveErrMemory();
-            buf->error = XML_ERR_NO_MEMORY;
+            xmlSaveErrMemory(buf);
 	    return(-1);
 	}
         buf->encoder = handler;
@@ -1994,7 +1986,8 @@ xmlSaveSetAttrEscape(xmlSaveCtxtPtr ctxt, xmlCharEncodingOutputFunc escape)
  */
 void
 xmlBufAttrSerializeTxtContent(xmlBufPtr buf, xmlDocPtr doc,
-                              xmlAttrPtr attr, const xmlChar * string)
+                              xmlAttrPtr attr ATTRIBUTE_UNUSED,
+                              const xmlChar * string)
 {
     xmlChar *base, *cur;
 
@@ -2050,54 +2043,31 @@ xmlBufAttrSerializeTxtContent(xmlBufPtr buf, xmlDocPtr doc,
              * We assume we have UTF-8 content.
              */
             unsigned char tmp[12];
-            int val = 0, l = 1;
+            int val = 0, l = 4;
 
             if (base != cur)
                 xmlBufAdd(buf, base, cur - base);
-            if (*cur < 0xC0) {
-                xmlSaveErr(XML_SAVE_NOT_UTF8, (xmlNodePtr) attr, NULL);
-		xmlSerializeHexCharRef(tmp, *cur);
-                xmlBufAdd(buf, (xmlChar *) tmp, -1);
+
+            val = xmlGetUTF8Char(cur, &l);
+            if (val < 0) {
+#ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+                fprintf(stderr, "xmlEscapeEntities: invalid UTF-8\n");
+                abort();
+#endif
+                val = 0xFFFD;
                 cur++;
-                base = cur;
-                continue;
-            } else if (*cur < 0xE0) {
-                val = (cur[0]) & 0x1F;
-                val <<= 6;
-                val |= (cur[1]) & 0x3F;
-                l = 2;
-            } else if ((*cur < 0xF0) && (cur [2] != 0)) {
-                val = (cur[0]) & 0x0F;
-                val <<= 6;
-                val |= (cur[1]) & 0x3F;
-                val <<= 6;
-                val |= (cur[2]) & 0x3F;
-                l = 3;
-            } else if ((*cur < 0xF8) && (cur [2] != 0) && (cur[3] != 0)) {
-                val = (cur[0]) & 0x07;
-                val <<= 6;
-                val |= (cur[1]) & 0x3F;
-                val <<= 6;
-                val |= (cur[2]) & 0x3F;
-                val <<= 6;
-                val |= (cur[3]) & 0x3F;
-                l = 4;
+            } else {
+                if (!IS_CHAR(val))
+                    val = 0xFFFD;
+                cur += l;
             }
-            if ((l == 1) || (!IS_CHAR(val))) {
-                xmlSaveErr(XML_SAVE_CHAR_INVALID, (xmlNodePtr) attr, NULL);
-		xmlSerializeHexCharRef(tmp, *cur);
-                xmlBufAdd(buf, (xmlChar *) tmp, -1);
-                cur++;
-                base = cur;
-                continue;
-            }
+
             /*
              * We could do multiple things here. Just save
              * as a char ref
              */
 	    xmlSerializeHexCharRef(tmp, val);
             xmlBufAdd(buf, (xmlChar *) tmp, -1);
-            cur += l;
             base = cur;
         } else {
             cur++;
@@ -2201,7 +2171,7 @@ xmlBufNodeDump(xmlBufPtr buf, xmlDocPtr doc, xmlNodePtr cur, int level,
     }
     outbuf = (xmlOutputBufferPtr) xmlMalloc(sizeof(xmlOutputBuffer));
     if (outbuf == NULL) {
-        xmlSaveErrMemory();
+        xmlSaveErrMemory(NULL);
         return (-1);
     }
     memset(outbuf, 0, (size_t) sizeof(xmlOutputBuffer));
@@ -2244,13 +2214,11 @@ xmlElemDump(FILE * f, xmlDocPtr doc, xmlNodePtr cur)
     outbuf = xmlOutputBufferCreateFile(f, NULL);
     if (outbuf == NULL)
         return;
-    if ((doc != NULL) && (doc->type == XML_HTML_DOCUMENT_NODE)) {
 #ifdef LIBXML_HTML_ENABLED
+    if ((doc != NULL) && (doc->type == XML_HTML_DOCUMENT_NODE))
         htmlNodeDumpOutput(outbuf, doc, cur, NULL);
-#else
-	xmlSaveErr(XML_ERR_INTERNAL_ERROR, cur, "HTML support not compiled in\n");
+    else
 #endif /* LIBXML_HTML_ENABLED */
-    } else
         xmlNodeDumpOutput(outbuf, doc, cur, 0, 1, NULL);
     xmlOutputBufferClose(outbuf);
 }
@@ -2367,16 +2335,18 @@ xmlDocDumpFormatMemoryEnc(xmlDocPtr out_doc, xmlChar **doc_txt_ptr,
     if (txt_encoding == NULL)
 	txt_encoding = (const char *) out_doc->encoding;
     if (txt_encoding != NULL) {
-	conv_hdlr = xmlFindCharEncodingHandler(txt_encoding);
-	if ( conv_hdlr == NULL ) {
-	    xmlSaveErr(XML_SAVE_UNKNOWN_ENCODING, (xmlNodePtr) out_doc,
-		       txt_encoding);
+        int res;
+
+	res = xmlOpenCharEncodingHandler(txt_encoding, /* output */ 1,
+                                         &conv_hdlr);
+	if (conv_hdlr == NULL) {
+            xmlSaveErr(NULL, res, NULL, txt_encoding);
 	    return;
 	}
     }
 
     if ((out_buff = xmlAllocOutputBuffer(conv_hdlr)) == NULL ) {
-        xmlSaveErrMemory();
+        xmlSaveErrMemory(NULL);
         xmlCharEncCloseFunc(conv_hdlr);
         return;
     }
@@ -2410,7 +2380,7 @@ xmlDocDumpFormatMemoryEnc(xmlDocPtr out_doc, xmlChar **doc_txt_ptr,
     return;
 
 error:
-    xmlSaveErrMemory();
+    xmlSaveErrMemory(NULL);
     xmlOutputBufferClose(out_buff);
     return;
 }
@@ -2494,7 +2464,7 @@ xmlDocFormatDump(FILE *f, xmlDocPtr cur, int format) {
     encoding = (const char *) cur->encoding;
 
     if (encoding != NULL) {
-	handler = xmlFindCharEncodingHandler(encoding);
+	xmlOpenCharEncodingHandler(encoding, /* output */ 1, &handler);
 	if (handler == NULL) {
 	    xmlFree((char *) cur->encoding);
 	    cur->encoding = NULL;
@@ -2631,10 +2601,9 @@ xmlSaveFormatFileEnc( const char * filename, xmlDocPtr cur,
 	encoding = (const char *) cur->encoding;
 
     if (encoding != NULL) {
-
-	    handler = xmlFindCharEncodingHandler(encoding);
-	    if (handler == NULL)
-		return(-1);
+        xmlOpenCharEncodingHandler(encoding, /* output */ 1, &handler);
+        if (handler == NULL)
+            return(-1);
     }
 
 #ifdef LIBXML_ZLIB_ENABLED
