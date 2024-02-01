@@ -575,7 +575,9 @@
                     result. In case of a nodeset result, each node in the
                     node set is serialized in full in the output. In case
                     of an empty node set the "XPath set is empty" result
-                    will be shown and an error exit code will be returned.
+                    will be shown unless the <option>--quiet</option> is set.
+                    This feature is EXPERIMENTAL. Implementation details can
+                    change without futher notice.
                 </para>
             </listitem>
         </varlistentry>
