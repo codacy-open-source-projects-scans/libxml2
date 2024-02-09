@@ -21,10 +21,12 @@
 #include <libxml/parserInternals.h>
 #include <libxml/xmlerror.h>
 #include <libxml/list.h>
+#include <libxml/xmlsave.h>
 
 #include "private/error.h"
 #include "private/parser.h"
 #include "private/regexp.h"
+#include "private/save.h"
 #include "private/tree.h"
 
 static xmlElementPtr
@@ -973,105 +975,6 @@ xmlFreeElementContent(xmlElementContentPtr cur) {
 
 #ifdef LIBXML_OUTPUT_ENABLED
 /**
- * xmlDumpElementOccur:
- * @buf:  An XML buffer
- * @cur:  An element table
- *
- * Dump the occurrence operator of an element.
- */
-static void
-xmlDumpElementOccur(xmlBufferPtr buf, xmlElementContentPtr cur) {
-    switch (cur->ocur) {
-        case XML_ELEMENT_CONTENT_ONCE:
-            break;
-        case XML_ELEMENT_CONTENT_OPT:
-            xmlBufferWriteChar(buf, "?");
-            break;
-        case XML_ELEMENT_CONTENT_MULT:
-            xmlBufferWriteChar(buf, "*");
-            break;
-        case XML_ELEMENT_CONTENT_PLUS:
-            xmlBufferWriteChar(buf, "+");
-            break;
-    }
-}
-
-/**
- * xmlDumpElementContent:
- * @buf:  An XML buffer
- * @content:  An element table
- *
- * This will dump the content of the element table as an XML DTD definition
- */
-static void
-xmlDumpElementContent(xmlBufferPtr buf, xmlElementContentPtr content) {
-    xmlElementContentPtr cur;
-
-    if (content == NULL) return;
-
-    xmlBufferWriteChar(buf, "(");
-    cur = content;
-
-    do {
-        if (cur == NULL) return;
-
-        switch (cur->type) {
-            case XML_ELEMENT_CONTENT_PCDATA:
-                xmlBufferWriteChar(buf, "#PCDATA");
-                break;
-            case XML_ELEMENT_CONTENT_ELEMENT:
-                if (cur->prefix != NULL) {
-                    xmlBufferWriteCHAR(buf, cur->prefix);
-                    xmlBufferWriteChar(buf, ":");
-                }
-                xmlBufferWriteCHAR(buf, cur->name);
-                break;
-            case XML_ELEMENT_CONTENT_SEQ:
-            case XML_ELEMENT_CONTENT_OR:
-                if ((cur != content) &&
-                    (cur->parent != NULL) &&
-                    ((cur->type != cur->parent->type) ||
-                     (cur->ocur != XML_ELEMENT_CONTENT_ONCE)))
-                    xmlBufferWriteChar(buf, "(");
-                cur = cur->c1;
-                continue;
-            default:
-                xmlErrValid(NULL, XML_ERR_INTERNAL_ERROR,
-                        "Internal: ELEMENT cur corrupted invalid type\n",
-                        NULL);
-        }
-
-        while (cur != content) {
-            xmlElementContentPtr parent = cur->parent;
-
-            if (parent == NULL) return;
-
-            if (((cur->type == XML_ELEMENT_CONTENT_OR) ||
-                 (cur->type == XML_ELEMENT_CONTENT_SEQ)) &&
-                ((cur->type != parent->type) ||
-                 (cur->ocur != XML_ELEMENT_CONTENT_ONCE)))
-                xmlBufferWriteChar(buf, ")");
-            xmlDumpElementOccur(buf, cur);
-
-            if (cur == parent->c1) {
-                if (parent->type == XML_ELEMENT_CONTENT_SEQ)
-                    xmlBufferWriteChar(buf, " , ");
-                else if (parent->type == XML_ELEMENT_CONTENT_OR)
-                    xmlBufferWriteChar(buf, " | ");
-
-                cur = parent->c2;
-                break;
-            }
-
-            cur = parent;
-        }
-    } while (cur != content);
-
-    xmlBufferWriteChar(buf, ")");
-    xmlDumpElementOccur(buf, content);
-}
-
-/**
  * xmlSprintfElementContent:
  * @buf:  an output buffer
  * @content:  An element table
@@ -1506,59 +1409,21 @@ xmlCopyElementTable(xmlElementTablePtr table) {
  * @buf:  the XML buffer output
  * @elem:  An element table
  *
+ * DEPRECATED: Use xmlSaveTree.
+ *
  * This will dump the content of the element declaration as an XML
  * DTD definition
  */
 void
 xmlDumpElementDecl(xmlBufferPtr buf, xmlElementPtr elem) {
+    xmlSaveCtxtPtr save;
+
     if ((buf == NULL) || (elem == NULL))
         return;
-    switch (elem->etype) {
-	case XML_ELEMENT_TYPE_EMPTY:
-	    xmlBufferWriteChar(buf, "<!ELEMENT ");
-	    if (elem->prefix != NULL) {
-		xmlBufferWriteCHAR(buf, elem->prefix);
-		xmlBufferWriteChar(buf, ":");
-	    }
-	    xmlBufferWriteCHAR(buf, elem->name);
-	    xmlBufferWriteChar(buf, " EMPTY>\n");
-	    break;
-	case XML_ELEMENT_TYPE_ANY:
-	    xmlBufferWriteChar(buf, "<!ELEMENT ");
-	    if (elem->prefix != NULL) {
-		xmlBufferWriteCHAR(buf, elem->prefix);
-		xmlBufferWriteChar(buf, ":");
-	    }
-	    xmlBufferWriteCHAR(buf, elem->name);
-	    xmlBufferWriteChar(buf, " ANY>\n");
-	    break;
-	case XML_ELEMENT_TYPE_MIXED:
-	    xmlBufferWriteChar(buf, "<!ELEMENT ");
-	    if (elem->prefix != NULL) {
-		xmlBufferWriteCHAR(buf, elem->prefix);
-		xmlBufferWriteChar(buf, ":");
-	    }
-	    xmlBufferWriteCHAR(buf, elem->name);
-	    xmlBufferWriteChar(buf, " ");
-	    xmlDumpElementContent(buf, elem->content);
-	    xmlBufferWriteChar(buf, ">\n");
-	    break;
-	case XML_ELEMENT_TYPE_ELEMENT:
-	    xmlBufferWriteChar(buf, "<!ELEMENT ");
-	    if (elem->prefix != NULL) {
-		xmlBufferWriteCHAR(buf, elem->prefix);
-		xmlBufferWriteChar(buf, ":");
-	    }
-	    xmlBufferWriteCHAR(buf, elem->name);
-	    xmlBufferWriteChar(buf, " ");
-	    xmlDumpElementContent(buf, elem->content);
-	    xmlBufferWriteChar(buf, ">\n");
-	    break;
-	default:
-	    xmlErrValid(NULL, XML_ERR_INTERNAL_ERROR,
-		    "Internal: ELEMENT struct corrupted invalid type\n",
-		    NULL);
-    }
+
+    save = xmlSaveToBuffer(buf, NULL, 0);
+    xmlSaveTree(save, (xmlNodePtr) elem);
+    xmlSaveClose(save);
 }
 
 /**
@@ -1579,6 +1444,8 @@ xmlDumpElementDeclScan(void *elem, void *buf,
  * xmlDumpElementTable:
  * @buf:  the XML buffer output
  * @table:  An element table
+ *
+ * DEPRECATED: Don't use.
  *
  * This will dump the content of the element table as an XML DTD definition
  */
@@ -1673,28 +1540,6 @@ xmlCopyEnumeration(xmlEnumerationPtr cur) {
     return(ret);
 }
 #endif /* LIBXML_TREE_ENABLED */
-
-#ifdef LIBXML_OUTPUT_ENABLED
-/**
- * xmlDumpEnumeration:
- * @buf:  the XML buffer output
- * @enum:  An enumeration
- *
- * This will dump the content of the enumeration
- */
-static void
-xmlDumpEnumeration(xmlBufferPtr buf, xmlEnumerationPtr cur) {
-    while (cur != NULL) {
-        xmlBufferWriteCHAR(buf, cur->name);
-        if (cur->next != NULL)
-            xmlBufferWriteChar(buf, " | ");
-
-        cur = cur->next;
-    }
-
-    xmlBufferWriteChar(buf, ")");
-}
-#endif /* LIBXML_OUTPUT_ENABLED */
 
 #ifdef LIBXML_VALID_ENABLED
 /**
@@ -2107,81 +1952,21 @@ xmlCopyAttributeTable(xmlAttributeTablePtr table) {
  * @buf:  the XML buffer output
  * @attr:  An attribute declaration
  *
+ * DEPRECATED: Use xmlSaveTree.
+ *
  * This will dump the content of the attribute declaration as an XML
  * DTD definition
  */
 void
 xmlDumpAttributeDecl(xmlBufferPtr buf, xmlAttributePtr attr) {
+    xmlSaveCtxtPtr save;
+
     if ((buf == NULL) || (attr == NULL))
         return;
-    xmlBufferWriteChar(buf, "<!ATTLIST ");
-    xmlBufferWriteCHAR(buf, attr->elem);
-    xmlBufferWriteChar(buf, " ");
-    if (attr->prefix != NULL) {
-	xmlBufferWriteCHAR(buf, attr->prefix);
-	xmlBufferWriteChar(buf, ":");
-    }
-    xmlBufferWriteCHAR(buf, attr->name);
-    switch (attr->atype) {
-	case XML_ATTRIBUTE_CDATA:
-	    xmlBufferWriteChar(buf, " CDATA");
-	    break;
-	case XML_ATTRIBUTE_ID:
-	    xmlBufferWriteChar(buf, " ID");
-	    break;
-	case XML_ATTRIBUTE_IDREF:
-	    xmlBufferWriteChar(buf, " IDREF");
-	    break;
-	case XML_ATTRIBUTE_IDREFS:
-	    xmlBufferWriteChar(buf, " IDREFS");
-	    break;
-	case XML_ATTRIBUTE_ENTITY:
-	    xmlBufferWriteChar(buf, " ENTITY");
-	    break;
-	case XML_ATTRIBUTE_ENTITIES:
-	    xmlBufferWriteChar(buf, " ENTITIES");
-	    break;
-	case XML_ATTRIBUTE_NMTOKEN:
-	    xmlBufferWriteChar(buf, " NMTOKEN");
-	    break;
-	case XML_ATTRIBUTE_NMTOKENS:
-	    xmlBufferWriteChar(buf, " NMTOKENS");
-	    break;
-	case XML_ATTRIBUTE_ENUMERATION:
-	    xmlBufferWriteChar(buf, " (");
-	    xmlDumpEnumeration(buf, attr->tree);
-	    break;
-	case XML_ATTRIBUTE_NOTATION:
-	    xmlBufferWriteChar(buf, " NOTATION (");
-	    xmlDumpEnumeration(buf, attr->tree);
-	    break;
-	default:
-	    xmlErrValid(NULL, XML_ERR_INTERNAL_ERROR,
-		    "Internal: ATTRIBUTE struct corrupted invalid type\n",
-		    NULL);
-    }
-    switch (attr->def) {
-	case XML_ATTRIBUTE_NONE:
-	    break;
-	case XML_ATTRIBUTE_REQUIRED:
-	    xmlBufferWriteChar(buf, " #REQUIRED");
-	    break;
-	case XML_ATTRIBUTE_IMPLIED:
-	    xmlBufferWriteChar(buf, " #IMPLIED");
-	    break;
-	case XML_ATTRIBUTE_FIXED:
-	    xmlBufferWriteChar(buf, " #FIXED");
-	    break;
-	default:
-	    xmlErrValid(NULL, XML_ERR_INTERNAL_ERROR,
-		    "Internal: ATTRIBUTE struct corrupted invalid def\n",
-		    NULL);
-    }
-    if (attr->defaultValue != NULL) {
-	xmlBufferWriteChar(buf, " ");
-	xmlBufferWriteQuotedString(buf, attr->defaultValue);
-    }
-    xmlBufferWriteChar(buf, ">\n");
+
+    save = xmlSaveToBuffer(buf, NULL, 0);
+    xmlSaveTree(save, (xmlNodePtr) attr);
+    xmlSaveClose(save);
 }
 
 /**
@@ -2201,6 +1986,8 @@ xmlDumpAttributeDeclScan(void *attr, void *buf,
  * xmlDumpAttributeTable:
  * @buf:  the XML buffer output
  * @table:  An attribute table
+ *
+ * DEPRECATED: Don't use.
  *
  * This will dump the content of the attribute table as an XML DTD definition
  */
@@ -2402,39 +2189,20 @@ xmlCopyNotationTable(xmlNotationTablePtr table) {
  * @buf:  the XML buffer output
  * @nota:  A notation declaration
  *
+ * DEPRECATED: Don't use.
+ *
  * This will dump the content the notation declaration as an XML DTD definition
  */
 void
 xmlDumpNotationDecl(xmlBufferPtr buf, xmlNotationPtr nota) {
+    xmlSaveCtxtPtr save;
+
     if ((buf == NULL) || (nota == NULL))
         return;
-    xmlBufferWriteChar(buf, "<!NOTATION ");
-    xmlBufferWriteCHAR(buf, nota->name);
-    if (nota->PublicID != NULL) {
-	xmlBufferWriteChar(buf, " PUBLIC ");
-	xmlBufferWriteQuotedString(buf, nota->PublicID);
-	if (nota->SystemID != NULL) {
-	    xmlBufferWriteChar(buf, " ");
-	    xmlBufferWriteQuotedString(buf, nota->SystemID);
-	}
-    } else {
-	xmlBufferWriteChar(buf, " SYSTEM ");
-	xmlBufferWriteQuotedString(buf, nota->SystemID);
-    }
-    xmlBufferWriteChar(buf, " >\n");
-}
 
-/**
- * xmlDumpNotationDeclScan:
- * @nota:  A notation declaration
- * @buf:  the XML buffer output
- *
- * This is called with the hash scan function, and just reverses args
- */
-static void
-xmlDumpNotationDeclScan(void *nota, void *buf,
-                        const xmlChar *name ATTRIBUTE_UNUSED) {
-    xmlDumpNotationDecl((xmlBufferPtr) buf, (xmlNotationPtr) nota);
+    save = xmlSaveToBuffer(buf, NULL, 0);
+    xmlSaveNotationDecl(save, nota);
+    xmlSaveClose(save);
 }
 
 /**
@@ -2442,13 +2210,20 @@ xmlDumpNotationDeclScan(void *nota, void *buf,
  * @buf:  the XML buffer output
  * @table:  A notation table
  *
+ * DEPRECATED: Don't use.
+ *
  * This will dump the content of the notation table as an XML DTD definition
  */
 void
 xmlDumpNotationTable(xmlBufferPtr buf, xmlNotationTablePtr table) {
+    xmlSaveCtxtPtr save;
+
     if ((buf == NULL) || (table == NULL))
         return;
-    xmlHashScan(table, xmlDumpNotationDeclScan, buf);
+
+    save = xmlSaveToBuffer(buf, NULL, 0);
+    xmlSaveNotationTable(save, table);
+    xmlSaveClose(save);
 }
 #endif /* LIBXML_OUTPUT_ENABLED */
 
@@ -2549,12 +2324,14 @@ xmlAddIDSafe(xmlDocPtr doc, const xmlChar *value, xmlAttrPtr attr,
             /*
              * Update the attribute to make entities work.
              */
-            if (ret->attr != NULL) {
-                ret->attr->id = NULL;
-                ret->attr = attr;
+            if (!streaming) {
+                if (ret->attr != NULL) {
+                    ret->attr->id = NULL;
+                    ret->attr = attr;
+                }
+                attr->id = ret;
             }
 	    attr->atype = XML_ATTRIBUTE_ID;
-            attr->id = ret;
             return(0);
         }
     }
@@ -2598,7 +2375,8 @@ xmlAddIDSafe(xmlDocPtr doc, const xmlChar *value, xmlAttrPtr attr,
     }
 
     attr->atype = XML_ATTRIBUTE_ID;
-    attr->id = ret;
+    if (!streaming)
+        attr->id = ret;
 
     if (id != NULL)
         *id = ret;

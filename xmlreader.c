@@ -1004,7 +1004,7 @@ xmlTextReaderValidatePop(xmlTextReaderPtr reader) {
  * entity substitution is not activated. As a result the parser interface
  * must walk through the entity and do the validation calls
  */
-static void
+static int
 xmlTextReaderValidateEntity(xmlTextReaderPtr reader) {
     xmlNodePtr oldnode = reader->node;
     xmlNodePtr node = reader->node;
@@ -1033,7 +1033,7 @@ xmlTextReaderValidateEntity(xmlTextReaderPtr reader) {
 	} else if (node->type == XML_ELEMENT_NODE) {
 	    reader->node = node;
 	    if (xmlTextReaderValidatePush(reader) < 0)
-                return;
+                return(-1);
 	} else if ((node->type == XML_TEXT_NODE) ||
 		   (node->type == XML_CDATA_SECTION_NODE)) {
             xmlTextReaderValidateCData(reader, node->content,
@@ -1049,7 +1049,7 @@ xmlTextReaderValidateEntity(xmlTextReaderPtr reader) {
 	    continue;
 	} else if (node->type == XML_ELEMENT_NODE) {
 	    if (xmlTextReaderValidatePop(reader) < 0)
-                return;
+                return(-1);
 	}
 skip_children:
 	if (node->next != NULL) {
@@ -1071,7 +1071,7 @@ skip_children:
 		}
 		reader->node = node;
 		if (xmlTextReaderValidatePop(reader) < 0)
-                    return;
+                    return(-1);
 	    }
 	    if ((node->type == XML_ENTITY_DECL) &&
 		(reader->ent != NULL) && (reader->ent->children == node)) {
@@ -1086,6 +1086,8 @@ skip_children:
 	} while ((node != NULL) && (node != oldnode));
     } while ((node != NULL) && (node != oldnode));
     reader->node = oldnode;
+
+    return(0);
 }
 #endif /* LIBXML_REGEXP_ENABLED */
 
@@ -1140,6 +1142,7 @@ xmlTextReaderDoExpand(xmlTextReaderPtr reader) {
 	val = xmlTextReaderPushData(reader);
 	if (val < 0){
 	    reader->mode = XML_TEXTREADER_MODE_ERROR;
+            reader->state = XML_TEXTREADER_ERROR;
 	    return(-1);
 	}
     } while(reader->mode != XML_TEXTREADER_MODE_EOF);
@@ -1218,6 +1221,8 @@ xmlTextReaderRead(xmlTextReaderPtr reader) {
         return(xmlTextReaderReadTree(reader));
     if (reader->ctxt == NULL)
 	return(-1);
+    if (reader->state == XML_TEXTREADER_ERROR)
+        return(-1);
 
     if (reader->mode == XML_TEXTREADER_MODE_INITIAL) {
 	reader->mode = XML_TEXTREADER_MODE_INTERACTIVE;
@@ -1226,11 +1231,11 @@ xmlTextReaderRead(xmlTextReaderPtr reader) {
 	 */
 	do {
 	    val = xmlTextReaderPushData(reader);
-		if (val < 0){
-			reader->mode = XML_TEXTREADER_MODE_ERROR;
-			reader->state = XML_TEXTREADER_ERROR;
-		return(-1);
-		}
+            if (val < 0) {
+                reader->mode = XML_TEXTREADER_MODE_ERROR;
+                reader->state = XML_TEXTREADER_ERROR;
+                return(-1);
+            }
 	} while ((reader->ctxt->node == NULL) &&
 		 ((reader->mode != XML_TEXTREADER_MODE_EOF) &&
 		  (reader->state != XML_TEXTREADER_DONE)));
@@ -1238,11 +1243,11 @@ xmlTextReaderRead(xmlTextReaderPtr reader) {
 	    if (reader->ctxt->myDoc != NULL) {
 		reader->node = reader->ctxt->myDoc->children;
 	    }
-	    if (reader->node == NULL){
-			reader->mode = XML_TEXTREADER_MODE_ERROR;
-			reader->state = XML_TEXTREADER_ERROR;
+	    if (reader->node == NULL) {
+                reader->mode = XML_TEXTREADER_MODE_ERROR;
+                reader->state = XML_TEXTREADER_ERROR;
 		return(-1);
-		}
+	    }
 	    reader->state = XML_TEXTREADER_ELEMENT;
 	} else {
 	    if (reader->ctxt->myDoc != NULL) {
@@ -1262,10 +1267,13 @@ xmlTextReaderRead(xmlTextReaderPtr reader) {
 
 get_next_node:
     if (reader->node == NULL) {
-	if (reader->mode == XML_TEXTREADER_MODE_EOF)
+	if (reader->mode == XML_TEXTREADER_MODE_EOF) {
 	    return(0);
-	else
+        } else {
+            reader->mode = XML_TEXTREADER_MODE_ERROR;
+            reader->state = XML_TEXTREADER_ERROR;
 	    return(-1);
+        }
     }
 
     /*
@@ -1290,8 +1298,11 @@ get_next_node:
 	   (reader->ctxt->instate != XML_PARSER_EOF) &&
 	   (PARSER_STOPPED(reader->ctxt) == 0)) {
 	val = xmlTextReaderPushData(reader);
-	if (val < 0)
+	if (val < 0) {
+            reader->mode = XML_TEXTREADER_MODE_ERROR;
+            reader->state = XML_TEXTREADER_ERROR;
 	    return(-1);
+        }
 	if (reader->node == NULL)
 	    goto node_end;
     }
@@ -1375,8 +1386,11 @@ get_next_node:
 	if (reader->mode != XML_TEXTREADER_MODE_EOF) {
 	    val = xmlParseChunk(reader->ctxt, "", 0, 1);
 	    reader->state = XML_TEXTREADER_DONE;
-	    if (val != 0)
+	    if (val != 0) {
+                reader->mode = XML_TEXTREADER_MODE_ERROR;
+                reader->state = XML_TEXTREADER_ERROR;
 	        return(-1);
+            }
 	}
 	reader->node = NULL;
 	reader->depth = -1;
@@ -1428,6 +1442,7 @@ node_found:
      * Handle XInclude if asked for
      */
     if ((reader->xinclude) && (reader->in_xinclude == 0) &&
+        (reader->state != XML_TEXTREADER_BACKTRACK) &&
         (reader->node != NULL) &&
 	(reader->node->type == XML_ELEMENT_NODE) &&
 	(reader->node->ns != NULL) &&
@@ -1485,7 +1500,8 @@ node_found:
     } else if ((reader->node != NULL) &&
 	       (reader->node->type == XML_ENTITY_REF_NODE) &&
 	       (reader->ctxt != NULL) && (reader->validate)) {
-	xmlTextReaderValidateEntity(reader);
+	if (xmlTextReaderValidateEntity(reader) < 0)
+            return(-1);
 #endif /* LIBXML_REGEXP_ENABLED */
     }
     if ((reader->node != NULL) &&

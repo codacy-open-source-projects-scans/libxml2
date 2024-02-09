@@ -58,6 +58,7 @@ LLVMFuzzerTestOneInput(const char *data, size_t size) {
     if (ctxt != NULL) {
         doc = xmlCtxtReadMemory(ctxt, docBuffer, docSize, docUrl, NULL, opts);
         xmlFuzzCheckMallocFailure("xmlCtxtReadMemory",
+                                  doc == NULL &&
                                   ctxt->errNo == XML_ERR_NO_MEMORY);
 
         if (doc != NULL) {
@@ -66,7 +67,6 @@ LLVMFuzzerTestOneInput(const char *data, size_t size) {
             xmlSaveCtxtPtr save;
 
             /* Also test the serializer. */
-            xmlFuzzResetMallocFailed();
             buffer = xmlBufferCreate();
             save = xmlSaveToBuffer(buffer, NULL, 0);
             if (save != NULL) {
@@ -74,7 +74,7 @@ LLVMFuzzerTestOneInput(const char *data, size_t size) {
 
                 xmlSaveDoc(save, doc);
                 errNo = xmlSaveFinish(save);
-                xmlFuzzCheckMallocFailure("xmlDocDumpMemory",
+                xmlFuzzCheckMallocFailure("xmlSaveDoc",
                                           errNo == XML_ERR_NO_MEMORY);
             }
             xmlBufferFree(buffer);
