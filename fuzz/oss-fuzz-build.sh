@@ -3,10 +3,12 @@
 # OSS-Fuzz integration, see
 # https://github.com/google/oss-fuzz/tree/master/projects/libxml2
 
-# Add all integer sanitizers
+# Add extra UBSan checks
 if [ "$SANITIZER" = undefined ]; then
-    export CFLAGS="$CFLAGS -fsanitize=integer -fno-sanitize-recover=integer"
-    export CXXFLAGS="$CXXFLAGS -fsanitize=integer -fno-sanitize-recover=integer"
+    extra_checks="integer,float-divide-by-zero"
+    extra_cflags="-fsanitize=$extra_checks -fno-sanitize-recover=$extra_checks"
+    export CFLAGS="$CFLAGS $extra_cflags"
+    export CXXFLAGS="$CXXFLAGS $extra_cflags"
 fi
 
 export V=1
@@ -22,7 +24,7 @@ cd fuzz
 make clean-corpus
 make fuzz.o
 
-for fuzzer in html regexp schema uri valid xinclude xml xpath; do
+for fuzzer in api html regexp schema uri valid xinclude xml xpath; do
     make $fuzzer.o
     # Link with $CXX
     $CXX $CXXFLAGS \
@@ -31,8 +33,10 @@ for fuzzer in html regexp schema uri valid xinclude xml xpath; do
         $LIB_FUZZING_ENGINE \
         ../.libs/libxml2.a -Wl,-Bstatic -lz -llzma -Wl,-Bdynamic
 
-    [ -e seed/$fuzzer ] || make seed/$fuzzer.stamp
-    zip -j $OUT/${fuzzer}_seed_corpus.zip seed/$fuzzer/*
+    if [ $fuzzer != api ]; then
+        [ -e seed/$fuzzer ] || make seed/$fuzzer.stamp
+        zip -j $OUT/${fuzzer}_seed_corpus.zip seed/$fuzzer/*
+    fi
 done
 
 cp *.dict *.options $OUT/

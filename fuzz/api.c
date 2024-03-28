@@ -38,7 +38,8 @@
 #endif
 
 #define MAX_CONTENT     100
-#define MAX_COPY         50
+#define MAX_COPY_NODES   50
+#define MAX_COPY_OPS     20
 
 typedef enum {
     /* Basic operations */
@@ -115,6 +116,7 @@ typedef enum {
     OP_XML_NODE_GET_BASE,
     OP_XML_NODE_GET_BASE_SAFE,
     OP_XML_NODE_SET_BASE,
+    OP_XML_IS_BLANK_NODE,
 
     /* Attributes */
     OP_XML_HAS_PROP,
@@ -147,6 +149,39 @@ typedef enum {
     OP_XML_ADD_PREV_SIBLING,
     OP_XML_ADD_NEXT_SIBLING,
 
+    /* String output */
+    OP_XML_DOC_DUMP_MEMORY,
+    OP_XML_DOC_DUMP_MEMORY_ENC,
+    OP_XML_DOC_DUMP_FORMAT_MEMORY,
+    OP_XML_DOC_DUMP_FORMAT_MEMORY_ENC,
+
+    /* FILE output, TODO, use fmemopen */
+    OP_XML_DOC_DUMP,
+    OP_XML_DOC_FORMAT_DUMP,
+    OP_XML_ELEM_DUMP,
+
+    /* xmlBuf output, TODO, no public API */
+    OP_XML_BUF_NODE_DUMP,
+    OP_XML_BUF_GET_NODE_CONTENT,
+
+    /* xmlBuffer output */
+    OP_XML_NODE_DUMP,
+    OP_XML_NODE_BUF_GET_CONTENT,
+    OP_XML_ATTR_SERIALIZE_TXT_CONTENT,
+    OP_XML_DUMP_ELEMENT_DECL,
+    OP_XML_DUMP_ELEMENT_TABLE,
+    OP_XML_DUMP_ATTRIBUTE_DECL,
+    OP_XML_DUMP_ATTRIBUTE_TABLE,
+    OP_XML_DUMP_NOTATION_DECL,
+    OP_XML_DUMP_NOTATION_TABLE,
+    OP_XML_DUMP_ENTITY_DECL,
+    OP_XML_DUMP_ENTITIES_TABLE,
+
+    /* xmlOutputBuffer */
+    OP_XML_SAVE_FILE_TO,
+    OP_XML_SAVE_FORMAT_FILE_TO,
+    OP_XML_NODE_DUMP_OUTPUT,
+
     /* Misc */
     OP_XML_TEXT_MERGE,
     OP_XML_TEXT_CONCAT,
@@ -154,6 +189,18 @@ typedef enum {
     OP_XML_STRING_LEN_GET_NODE_LIST,
     OP_XML_NODE_LIST_GET_STRING,
     OP_XML_NODE_LIST_GET_RAW_STRING,
+    OP_XML_IS_XHTML,
+
+    /* DOM */
+    OP_XML_DOM_WRAP_RECONCILE_NAMESPACES,
+    OP_XML_DOM_WRAP_ADOPT_NODE,
+    OP_XML_DOM_WRAP_REMOVE_NODE,
+    OP_XML_DOM_WRAP_CLONE_NODE,
+    OP_XML_CHILD_ELEMENT_COUNT,
+    OP_XML_FIRST_ELEMENT_CHILD,
+    OP_XML_LAST_ELEMENT_CHILD,
+    OP_XML_NEXT_ELEMENT_SIBLING,
+    OP_XML_PREVIOUS_ELEMENT_SIBLING,
 
     /*** parser.h ***/
 
@@ -222,67 +269,16 @@ typedef enum {
     OP_HTML_SET_META_ENCODING,
     OP_HTML_IS_BOOLEAN_ATTR,
 
-    /*** output ***/
-
-    /* string */
-    OP_XML_DOC_DUMP_MEMORY,
-    OP_XML_DOC_DUMP_MEMORY_ENC,
-    OP_XML_DOC_DUMP_FORMAT_MEMORY,
-    OP_XML_DOC_DUMP_FORMAT_MEMORY_ENC,
     OP_HTML_DOC_DUMP_MEMORY,
     OP_HTML_DOC_DUMP_MEMORY_FORMAT,
-
-    /* FILE, TODO, use fmemopen */
-    OP_XML_DOC_DUMP,
-    OP_XML_DOC_FORMAT_DUMP,
-    OP_XML_ELEM_DUMP,
     OP_HTML_DOC_DUMP,
     OP_HTML_NODE_DUMP_FILE,
     OP_HTML_NODE_DUMP_FILE_FORMAT,
-
-    /* xmlBuf, no public API */
-    OP_XML_BUF_NODE_DUMP,
-
-    /* xmlBuffer */
-    OP_XML_NODE_DUMP,
-    OP_XML_ATTR_SERIALIZE_TXT_CONTENT,
-    OP_XML_DUMP_ELEMENT_DECL,
-    OP_XML_DUMP_ELEMENT_TABLE,
-    OP_XML_DUMP_ATTRIBUTE_DECL,
-    OP_XML_DUMP_ATTRIBUTE_TABLE,
-    OP_XML_DUMP_NOTATION_DECL,
-    OP_XML_DUMP_NOTATION_TABLE,
-    OP_XML_DUMP_ENTITY_DECL,
-    OP_XML_DUMP_ENTITIES_TABLE,
     OP_HTML_NODE_DUMP,
-
-    /* xmlOutputBuffer */
-    OP_XML_SAVE_FILE_TO,
-    OP_XML_SAVE_FORMAT_FILE_TO,
-    OP_XML_NODE_DUMP_OUTPUT,
     OP_HTML_DOC_CONTENT_DUMP_OUTPUT,
     OP_HTML_DOC_CONTENT_DUMP_FORMAT_OUTPUT,
     OP_HTML_NODE_DUMP_OUTPUT,
     OP_HTML_NODE_DUMP_FORMAT_OUTPUT,
-
-    /* extra */
-
-    OP_XML_IS_XHTML, /* Misc */
-    OP_XML_IS_BLANK_NODE, /* Accessors */
-    OP_XML_NODE_BUF_GET_CONTENT, /* output to xmlBuffer */
-    OP_XML_BUF_GET_NODE_CONTENT, /* xmlBuf, no public API */
-
-    /* DOM */
-
-    OP_XML_DOM_WRAP_RECONCILE_NAMESPACES,
-    OP_XML_DOM_WRAP_ADOPT_NODE,
-    OP_XML_DOM_WRAP_REMOVE_NODE,
-    OP_XML_DOM_WRAP_CLONE_NODE,
-    OP_XML_CHILD_ELEMENT_COUNT,
-    OP_XML_FIRST_ELEMENT_CHILD,
-    OP_XML_LAST_ELEMENT_CHILD,
-    OP_XML_NEXT_ELEMENT_SIBLING,
-    OP_XML_PREVIOUS_ELEMENT_SIBLING,
 
     OP_MAX
 } opType;
@@ -352,6 +348,8 @@ typedef struct {
     int intIdx;
     int stringIdx;
     int nodeIdx;
+
+    int numCopyOps;
 
     const char *opName;
 
@@ -799,7 +797,11 @@ done:
 
 static xmlNodePtr
 checkCopy(xmlNodePtr copy) {
-    if (countNodes(copy) > MAX_COPY) {
+    vars->numCopyOps += 1;
+
+    if (copy != NULL &&
+        (vars->numCopyOps > MAX_COPY_OPS ||
+         countNodes(copy) > MAX_COPY_NODES)) {
         if (copy->type == XML_DOCUMENT_NODE ||
             copy->type == XML_HTML_DOCUMENT_NODE)
             xmlFreeDoc((xmlDocPtr) copy);
@@ -811,6 +813,11 @@ checkCopy(xmlNodePtr copy) {
     return copy;
 }
 
+/*
+ * Fix namespaces, for example after unlinking a node. This makes
+ * sure that the node only references namespaces declared in ancestor
+ * nodes.
+ */
 static int
 fixNs(xmlNodePtr node) {
     if (node == NULL)
@@ -948,6 +955,9 @@ int
 LLVMFuzzerTestOneInput(const char *data, size_t size) {
     size_t maxAlloc;
     int i;
+
+    if (size > 1000)
+        return 0;
 
     memset(vars, 0, sizeof(*vars));
 
@@ -2349,6 +2359,7 @@ LLVMFuzzerTestOneInput(const char *data, size_t size) {
                 if (result != NULL && result != node) {
                     /* Text node was merged */
                     removeNode(node);
+                    checkContent(result);
                     /* Drop old parent of node */
                     if (oldNodeParent != NULL)
                         dropNode(oldNodeParent);
@@ -3377,8 +3388,11 @@ LLVMFuzzerTestOneInput(const char *data, size_t size) {
                      doc != NULL &&
                      node->doc == doc &&
                      res < 0);
-                if (node && node->parent != oldParent)
+                if (node != NULL && node->parent != oldParent) {
+                    if (fixNs(node) < 0)
+                        oomReport = 1;
                     dropNode(oldParent);
+                }
                 endOp();
                 break;
             }

@@ -5020,7 +5020,8 @@ xmlSnprintfElements(char *buf, int size, xmlNodePtr node, int glob) {
 			strcat(buf, " ...");
 		    return;
 		}
-	        strcat(buf, (char *) cur->name);
+                if (cur->name != NULL)
+	            strcat(buf, (char *) cur->name);
 		if (cur->next != NULL)
 		    strcat(buf, " ");
 		break;
@@ -5893,8 +5894,10 @@ xmlValidateOneElement(xmlValidCtxtPtr ctxt, xmlDocPtr doc,
 
 			fullname = xmlBuildQName(child->name, child->ns->prefix,
 				                 fn, 50);
-			if (fullname == NULL)
+			if (fullname == NULL) {
+                            xmlVErrMemory(ctxt);
 			    return(0);
+                        }
 			cont = elemDecl->content;
 			while (cont != NULL) {
 			    if (cont->type == XML_ELEMENT_CONTENT_ELEMENT) {

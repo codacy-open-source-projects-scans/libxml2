@@ -521,8 +521,10 @@ xmlXIncludeAddNode(xmlXIncludeCtxtPtr ctxt, xmlNodePtr cur) {
             base = NULL;
         } else {
             ref->base = xmlStrdup(BAD_CAST "");
-            if (ref->base == NULL)
+            if (ref->base == NULL) {
+	        xmlXIncludeErrMemory(ctxt);
                 goto error;
+            }
         }
     }
 
@@ -1960,7 +1962,11 @@ xmlXIncludeIncludeNode(xmlXIncludeCtxtPtr ctxt, xmlXIncludeRefPtr ref) {
 	    end = list;
 	    list = list->next;
 
-	    xmlAddPrevSibling(cur, end);
+	    if (xmlAddPrevSibling(cur, end) == NULL) {
+                xmlUnlinkNode(end);
+                xmlFreeNode(end);
+                goto err_memory;
+            }
 	}
         /*
          * FIXME: xmlUnlinkNode doesn't coalesce text nodes.
@@ -1984,13 +1990,13 @@ xmlXIncludeIncludeNode(xmlXIncludeCtxtPtr ctxt, xmlXIncludeRefPtr ref) {
             xmlFreeNode(child);
         }
 	end = xmlNewDocNode(cur->doc, cur->ns, cur->name, NULL);
-	if (end == NULL) {
-	    xmlXIncludeErrMemory(ctxt);
-            xmlFreeNodeList(list);
-	    return(-1);
-	}
+	if (end == NULL)
+            goto err_memory;
 	end->type = XML_XINCLUDE_END;
-	xmlAddNextSibling(cur, end);
+	if (xmlAddNextSibling(cur, end) == NULL) {
+            xmlFreeNode(end);
+            goto err_memory;
+        }
 
 	/*
 	 * Add the list of nodes
@@ -1999,12 +2005,21 @@ xmlXIncludeIncludeNode(xmlXIncludeCtxtPtr ctxt, xmlXIncludeRefPtr ref) {
 	    cur = list;
 	    list = list->next;
 
-	    xmlAddPrevSibling(end, cur);
+	    if (xmlAddPrevSibling(end, cur) == NULL) {
+                xmlUnlinkNode(cur);
+                xmlFreeNode(cur);
+                goto err_memory;
+            }
 	}
     }
 
 
     return(0);
+
+err_memory:
+    xmlXIncludeErrMemory(ctxt);
+    xmlFreeNodeList(list);
+    return(-1);
 }
 
 /**
