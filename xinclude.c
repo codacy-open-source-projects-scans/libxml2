@@ -612,8 +612,11 @@ xmlXIncludeBaseFixup(xmlXIncludeCtxtPtr ctxt, xmlNodePtr cur, xmlNodePtr copy,
                      const xmlChar *targetBase) {
     xmlChar *base = NULL;
     xmlChar *relBase = NULL;
-    xmlAttrPtr attr;
+    xmlNs ns;
     int res;
+
+    if (cur->type != XML_ELEMENT_NODE)
+        return;
 
     if (xmlNodeGetBaseSafe(cur->doc, cur, &base) < 0)
         xmlXIncludeErrMemory(ctxt);
@@ -645,12 +648,9 @@ xmlXIncludeBaseFixup(xmlXIncludeCtxtPtr ctxt, xmlNodePtr cur, xmlNodePtr copy,
     /*
      * Delete existing xml:base if bases are equal
      */
-    attr = xmlHasNsProp(copy, BAD_CAST "base",
-                        XML_XML_NAMESPACE);
-    if (attr != NULL) {
-        xmlUnlinkNode((xmlNodePtr) attr);
-        xmlFreeProp(attr);
-    }
+    memset(&ns, 0, sizeof(ns));
+    ns.href = XML_XML_NAMESPACE;
+    xmlUnsetNsProp(copy, &ns, BAD_CAST "base");
 
 done:
     xmlFree(base);
@@ -1957,6 +1957,8 @@ xmlXIncludeIncludeNode(xmlXIncludeCtxtPtr ctxt, xmlXIncludeRefPtr ref) {
     if (ctxt->parseFlags & XML_PARSE_NOXINCNODE) {
 	/*
 	 * Add the list of nodes
+         *
+         * TODO: Coalesce text nodes unless we are streaming mode.
 	 */
 	while (list != NULL) {
 	    end = list;
@@ -1968,9 +1970,6 @@ xmlXIncludeIncludeNode(xmlXIncludeCtxtPtr ctxt, xmlXIncludeRefPtr ref) {
                 goto err_memory;
             }
 	}
-        /*
-         * FIXME: xmlUnlinkNode doesn't coalesce text nodes.
-         */
 	xmlUnlinkNode(cur);
 	xmlFreeNode(cur);
     } else {
