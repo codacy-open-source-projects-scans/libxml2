@@ -226,7 +226,7 @@ xmlSplitQName2(const xmlChar *name, xmlChar **prefix) {
     while ((name[len] != 0) && (name[len] != ':'))
 	len++;
 
-    if (name[len] == 0)
+    if ((name[len] == 0) || (name[len+1] == 0))
 	return(NULL);
 
     *prefix = xmlStrndup(name, len);
@@ -274,7 +274,7 @@ xmlSplitQName3(const xmlChar *name, int *len) {
     while ((name[l] != 0) && (name[l] != ':'))
 	l++;
 
-    if (name[l] == 0)
+    if ((name[l] == 0) || (name[l+1] == 0))
 	return(NULL);
 
     *len = l;
@@ -1133,7 +1133,7 @@ xmlFreeDoc(xmlDocPtr cur) {
 	return;
     }
 
-    if (cur != NULL) dict = cur->dict;
+    dict = cur->dict;
 
     if ((__xmlRegisterCallbacks) && (xmlDeregisterNodeDefaultValue))
 	xmlDeregisterNodeDefaultValue((xmlNodePtr)cur);
@@ -3840,9 +3840,6 @@ xmlReplaceNode(xmlNodePtr old, xmlNodePtr cur) {
     if ((cur == NULL) || (cur->type == XML_NAMESPACE_DECL)) {
         /* Don't call xmlUnlinkNodeInternal to handle DTDs. */
 	xmlUnlinkNode(old);
-	return(old);
-    }
-    if (cur == old) {
 	return(old);
     }
     if ((old->type==XML_ATTRIBUTE_NODE) && (cur->type!=XML_ATTRIBUTE_NODE)) {
@@ -7351,7 +7348,7 @@ xmlBufferResize(xmlBufferPtr buf, unsigned int size)
 	case XML_BUFFER_ALLOC_DOUBLEIT:
 	    /*take care of empty case*/
             if (buf->size == 0)
-                newSize = (size > UINT_MAX - 10 ? UINT_MAX : size + 10);
+                newSize = size + 10;
             else
                 newSize = buf->size;
 	    while (size > newSize) {
@@ -7361,7 +7358,7 @@ xmlBufferResize(xmlBufferPtr buf, unsigned int size)
 	    }
 	    break;
 	case XML_BUFFER_ALLOC_EXACT:
-	    newSize = (size > UINT_MAX - 10 ? UINT_MAX : size + 10);
+	    newSize = size + 10;
 	    break;
         case XML_BUFFER_ALLOC_HYBRID:
             if (buf->use < BASE_BUFFER_SIZE)
@@ -7377,7 +7374,7 @@ xmlBufferResize(xmlBufferPtr buf, unsigned int size)
             break;
 
 	default:
-	    newSize = (size > UINT_MAX - 10 ? UINT_MAX : size + 10);
+	    newSize = size + 10;
 	    break;
     }
 
@@ -9201,9 +9198,6 @@ xmlDOMWrapCloneNode(xmlDOMWrapCtxtPtr ctxt,
     *resNode = NULL;
 
     cur = node;
-    if ((cur != NULL) && (cur->type == XML_NAMESPACE_DECL))
-        return(-1);
-
     while (cur != NULL) {
 	if (cur->doc != sourceDoc) {
 	    /*
