@@ -685,11 +685,7 @@ xmlHasFeature(xmlFeature feature)
             return(0);
 #endif
         case XML_WITH_DEBUG_MEM:
-#ifdef DEBUG_MEMORY_LOCATION
-            return(1);
-#else
             return(0);
-#endif
         case XML_WITH_ZLIB:
 #ifdef LIBXML_ZLIB_ENABLED
             return(1);
@@ -7363,9 +7359,22 @@ xmlParseReference(xmlParserCtxtPtr ctxt) {
      * We are seeing an entity reference
      */
     name = xmlParseEntityRefInternal(ctxt);
-    if (name != NULL)
-        ent = xmlLookupGeneralEntity(ctxt, name, /* isAttr */ 0);
-    if (ent == NULL) return;
+    if (name == NULL)
+        return;
+    ent = xmlLookupGeneralEntity(ctxt, name, /* isAttr */ 0);
+    if (ent == NULL) {
+        /*
+         * Create a reference for undeclared entities.
+         * TODO: Should we really create a reference if entity
+         * substitution is enabled?
+         */
+        if ((ctxt->sax != NULL) &&
+            (ctxt->disableSAX == 0) &&
+            (ctxt->sax->reference != NULL)) {
+            ctxt->sax->reference(ctxt->userData, name);
+        }
+        return;
+    }
     if (!ctxt->wellFormed)
 	return;
 
@@ -7600,14 +7609,8 @@ xmlLookupGeneralEntity(xmlParserCtxtPtr ctxt, const xmlChar *name, int inAttr) {
 	    xmlFatalErrMsgStr(ctxt, XML_ERR_UNDECLARED_ENTITY,
 		     "Entity '%s' not defined\n", name);
 	} else {
-	    xmlErrMsgStr(ctxt, XML_WAR_UNDECLARED_ENTITY,
-		     "Entity '%s' not defined\n", name);
-	    if ((ctxt->inSubset == 0) &&
-		(ctxt->sax != NULL) &&
-                (ctxt->disableSAX == 0) &&
-		(ctxt->sax->reference != NULL)) {
-		ctxt->sax->reference(ctxt->userData, name);
-	    }
+	    xmlWarningMsg(ctxt, XML_WAR_UNDECLARED_ENTITY,
+		          "Entity '%s' not defined\n", name, NULL);
 	}
 	ctxt->valid = 0;
     }
@@ -7844,7 +7847,7 @@ xmlParsePEReference(xmlParserCtxtPtr ctxt)
 	     * precede any reference to it...
 	     */
             if ((ctxt->validate) && (ctxt->vctxt.error != NULL)) {
-                xmlValidityError(ctxt, XML_WAR_UNDECLARED_ENTITY,
+                xmlValidityError(ctxt, XML_ERR_UNDECLARED_ENTITY,
                                  "PEReference: %%%s; not found\n",
                                  name, NULL);
             } else

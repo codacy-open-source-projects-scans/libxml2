@@ -291,6 +291,7 @@ skip_impl = (
 
 deprecated_funcs = {
     'htmlDefaultSAXHandlerInit': True,
+    'htmlHandleOmittedElem': True,
     'htmlInitAutoClose': True,
     'htmlParseCharRef': True,
     'htmlParseElement': True,
@@ -307,6 +308,7 @@ deprecated_funcs = {
     'xmlDictCleanup': True,
     'xmlEncodeEntities': True,
     'xmlFileMatch': True,
+    'xmlGetCompressMode': True,
     'xmlHandleEntity': True,
     'xmlInitCharEncodingHandlers': True,
     'xmlInitGlobals': True,
@@ -377,6 +379,7 @@ deprecated_funcs = {
     'xmlScanName': True,
     'xmlSchemaCleanupTypes': True,
     'xmlSchemaInitTypes': True,
+    'xmlSetCompressMode': True,
     'xmlSetupParserForBuffer': True,
     'xmlSkipBlankChars': True,
     'xmlStringDecodeEntities': True,
@@ -489,7 +492,10 @@ def print_function_wrapper(name, output, export, include):
         # Don't delete the function entry in the caller.
         return 1
 
-    is_deprecated = name in deprecated_funcs
+    if name.startswith('xmlUCSIs'):
+        is_deprecated = name != 'xmlUCSIsBlock' and name != 'xmlUCSIsCat'
+    else:
+        is_deprecated = name in deprecated_funcs
 
     c_call = ""
     format=""

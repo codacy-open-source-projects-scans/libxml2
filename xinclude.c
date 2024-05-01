@@ -134,6 +134,7 @@ xmlXIncludeErrMemory(xmlXIncludeCtxtPtr ctxt)
 {
     ctxt->errNo = XML_ERR_NO_MEMORY;
     ctxt->fatalErr = 1;
+    ctxt->nbErrors++;
 
     xmlRaiseMemoryError(ctxt->errorHandler, NULL, ctxt->errorCtxt,
                         XML_FROM_XINCLUDE, NULL);
@@ -1248,8 +1249,10 @@ xmlXIncludeMergeEntities(xmlXIncludeCtxtPtr ctxt, xmlDocPtr doc,
 	if (cur == NULL)
 	    return(-1);
         target = xmlCreateIntSubset(doc, cur->name, NULL, NULL);
-	if (target == NULL)
+	if (target == NULL) {
+            xmlXIncludeErrMemory(ctxt);
 	    return(-1);
+        }
     }
 
     source = from->intSubset;
