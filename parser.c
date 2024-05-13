@@ -350,23 +350,6 @@ xmlFatalErrMsgStr(xmlParserCtxtPtr ctxt, xmlParserErrors error,
 }
 
 /**
- * xmlErrMsgStr:
- * @ctxt:  an XML parser context
- * @error:  the error number
- * @msg:  the error message
- * @val:  a string value
- *
- * Handle a non fatal parser error
- */
-static void LIBXML_ATTR_FORMAT(3,0)
-xmlErrMsgStr(xmlParserCtxtPtr ctxt, xmlParserErrors error,
-                  const char *msg, const xmlChar * val)
-{
-    xmlCtxtErr(ctxt, NULL, XML_FROM_PARSER, error, XML_ERR_ERROR,
-               val, NULL, NULL, 0, msg, val);
-}
-
-/**
  * xmlNsErr:
  * @ctxt:  an XML parser context
  * @error:  the error number
@@ -5735,23 +5718,7 @@ xmlParseEntityDecl(xmlParserCtxtPtr ctxt) {
 		    xmlFatalErr(ctxt, XML_ERR_VALUE_REQUIRED, NULL);
 		}
 		if (URI) {
-		    xmlURIPtr uri;
-
-                    if (xmlParseURISafe((const char *) URI, &uri) < 0) {
-                        xmlErrMemory(ctxt);
-                    } else if (uri == NULL) {
-                        /*
-                         * This really ought to be a well formedness error
-                         * but the XML Core WG decided otherwise c.f. issue
-                         * E26 of the XML erratas.
-                         */
-                        xmlErrMsgStr(ctxt, XML_ERR_INVALID_URI,
-                                     "Invalid URI: %s\n", URI);
-                    } else if (uri->fragment != NULL) {
-                        /*
-                         * Okay this is foolish to block those but not
-                         * invalid URIs.
-                         */
+                    if (xmlStrchr(URI, '#')) {
                         xmlFatalErr(ctxt, XML_ERR_URI_FRAGMENT, NULL);
                     } else {
                         if ((ctxt->sax != NULL) &&
@@ -5761,7 +5728,6 @@ xmlParseEntityDecl(xmlParserCtxtPtr ctxt) {
                                         XML_EXTERNAL_PARAMETER_ENTITY,
                                         literal, URI, NULL);
                     }
-		    xmlFreeURI(uri);
 		}
 	    }
 	} else {
@@ -5803,26 +5769,9 @@ xmlParseEntityDecl(xmlParserCtxtPtr ctxt) {
 		    xmlFatalErr(ctxt, XML_ERR_VALUE_REQUIRED, NULL);
 		}
 		if (URI) {
-		    xmlURIPtr uri;
-
-                    if (xmlParseURISafe((const char *) URI, &uri) < 0) {
-                        xmlErrMemory(ctxt);
-                    } else if (uri == NULL) {
-                        /*
-                         * This really ought to be a well formedness error
-                         * but the XML Core WG decided otherwise c.f. issue
-                         * E26 of the XML erratas.
-                         */
-                        xmlErrMsgStr(ctxt, XML_ERR_INVALID_URI,
-                                     "Invalid URI: %s\n", URI);
-                    } else if (uri->fragment != NULL) {
-                        /*
-                         * Okay this is foolish to block those but not
-                         * invalid URIs.
-                         */
+                    if (xmlStrchr(URI, '#')) {
                         xmlFatalErr(ctxt, XML_ERR_URI_FRAGMENT, NULL);
                     }
-                    xmlFreeURI(uri);
 		}
 		if ((RAW != '>') && (SKIP_BLANKS_PE == 0)) {
 		    xmlFatalErrMsg(ctxt, XML_ERR_SPACE_REQUIRED,
@@ -7365,10 +7314,9 @@ xmlParseReference(xmlParserCtxtPtr ctxt) {
     if (ent == NULL) {
         /*
          * Create a reference for undeclared entities.
-         * TODO: Should we really create a reference if entity
-         * substitution is enabled?
          */
-        if ((ctxt->sax != NULL) &&
+        if ((ctxt->replaceEntities == 0) &&
+            (ctxt->sax != NULL) &&
             (ctxt->disableSAX == 0) &&
             (ctxt->sax->reference != NULL)) {
             ctxt->sax->reference(ctxt->userData, name);
@@ -7603,11 +7551,22 @@ xmlLookupGeneralEntity(xmlParserCtxtPtr ctxt, const xmlChar *name, int inAttr) {
      * standalone='yes'.
      */
     if (ent == NULL) {
-	if ((ctxt->standalone == 1) ||
+	if (((!ctxt->validate) && (ctxt->loadsubset)) ||
+            (ctxt->standalone == 1) ||
 	    ((ctxt->hasExternalSubset == 0) &&
 	     (ctxt->hasPErefs == 0))) {
 	    xmlFatalErrMsgStr(ctxt, XML_ERR_UNDECLARED_ENTITY,
 		     "Entity '%s' not defined\n", name);
+        } else if (ctxt->validate) {
+            /*
+             * [ VC: Entity Declared ]
+             * In a document with an external subset or external
+             * parameter entities with "standalone='no'", ...
+             * ... The declaration of a parameter entity must
+             * precede any reference to it...
+             */
+            xmlValidityError(ctxt, XML_ERR_UNDECLARED_ENTITY,
+                             "Entity '%s' not defined\n", name, NULL);
 	} else {
 	    xmlWarningMsg(ctxt, XML_WAR_UNDECLARED_ENTITY,
 		          "Entity '%s' not defined\n", name, NULL);
@@ -7824,37 +7783,19 @@ xmlParsePEReference(xmlParserCtxtPtr ctxt)
 	(ctxt->sax->getParameterEntity != NULL))
 	entity = ctxt->sax->getParameterEntity(ctxt->userData, name);
     if (entity == NULL) {
-	/*
-	 * [ WFC: Entity Declared ]
-	 * In a document without any DTD, a document with only an
-	 * internal DTD subset which contains no parameter entity
-	 * references, or a document with "standalone='yes'", ...
-	 * ... The declaration of a parameter entity must precede
-	 * any reference to it...
-	 */
-	if ((ctxt->standalone == 1) ||
-	    ((ctxt->hasExternalSubset == 0) &&
-	     (ctxt->hasPErefs == 0))) {
+	if (((!ctxt->validate) && (ctxt->loadsubset)) ||
+            (ctxt->standalone == 1)) {
 	    xmlFatalErrMsgStr(ctxt, XML_ERR_UNDECLARED_ENTITY,
 			      "PEReference: %%%s; not found\n",
 			      name);
-	} else {
-	    /*
-	     * [ VC: Entity Declared ]
-	     * In a document with an external subset or external
-	     * parameter entities with "standalone='no'", ...
-	     * ... The declaration of a parameter entity must
-	     * precede any reference to it...
-	     */
-            if ((ctxt->validate) && (ctxt->vctxt.error != NULL)) {
-                xmlValidityError(ctxt, XML_ERR_UNDECLARED_ENTITY,
-                                 "PEReference: %%%s; not found\n",
-                                 name, NULL);
-            } else
-                xmlWarningMsg(ctxt, XML_WAR_UNDECLARED_ENTITY,
-                              "PEReference: %%%s; not found\n",
+	} else if (ctxt->validate) {
+            xmlValidityError(ctxt, XML_ERR_UNDECLARED_ENTITY,
+                             "PEReference: %%%s; not found\n",
+                             name, NULL);
+        } else {
+            xmlWarningMsg(ctxt, XML_WAR_UNDECLARED_ENTITY,
+                          "PEReference: %%%s; not found\n",
                               name, NULL);
-            ctxt->valid = 0;
 	}
     } else {
 	/*
@@ -8099,30 +8040,18 @@ xmlParseStringPEReference(xmlParserCtxtPtr ctxt, const xmlChar **str) {
 	(ctxt->sax->getParameterEntity != NULL))
 	entity = ctxt->sax->getParameterEntity(ctxt->userData, name);
     if (entity == NULL) {
-	/*
-	 * [ WFC: Entity Declared ]
-	 * In a document without any DTD, a document with only an
-	 * internal DTD subset which contains no parameter entity
-	 * references, or a document with "standalone='yes'", ...
-	 * ... The declaration of a parameter entity must precede
-	 * any reference to it...
-	 */
-	if ((ctxt->standalone == 1) ||
-	    ((ctxt->hasExternalSubset == 0) && (ctxt->hasPErefs == 0))) {
+	if (((!ctxt->validate) && (ctxt->loadsubset)) ||
+            (ctxt->standalone == 1)) {
 	    xmlFatalErrMsgStr(ctxt, XML_ERR_UNDECLARED_ENTITY,
 		 "PEReference: %%%s; not found\n", name);
-	} else {
-	    /*
-	     * [ VC: Entity Declared ]
-	     * In a document with an external subset or external
-	     * parameter entities with "standalone='no'", ...
-	     * ... The declaration of a parameter entity must
-	     * precede any reference to it...
-	     */
+	} else if (ctxt->validate) {
+            xmlValidityError(ctxt, XML_ERR_UNDECLARED_ENTITY,
+                             "PEReference: %%%s; not found\n",
+                             name, NULL);
+        } else {
 	    xmlWarningMsg(ctxt, XML_WAR_UNDECLARED_ENTITY,
 			  "PEReference: %%%s; not found\n",
 			  name, NULL);
-	    ctxt->valid = 0;
 	}
     } else {
 	/*
@@ -12239,6 +12168,8 @@ xmlParseCtxtExternalEntity(xmlParserCtxtPtr ctxt, const xmlChar *URL,
  * @ID:  the System ID for the entity to load
  * @lst:  the return value for the set of parsed nodes
  *
+ * DEPRECATED: Use xmlParseCtxtExternalEntity.
+ *
  * Parse an external general entity
  * An external general parsed entity is well-formed if it matches the
  * production labeled extParsedEnt.
@@ -13892,7 +13823,6 @@ xmlReadFd(int fd, const char *URL, const char *encoding, int options)
     xmlCtxtUseOptions(ctxt, options);
 
     input = xmlNewInputFd(ctxt, URL, fd, encoding, 0);
-    input->buf->closecallback = NULL;
 
     doc = xmlCtxtParseDocument(ctxt, input);
 
@@ -14073,7 +14003,6 @@ xmlCtxtReadFd(xmlParserCtxtPtr ctxt, int fd,
     xmlCtxtUseOptions(ctxt, options);
 
     input = xmlNewInputFd(ctxt, URL, fd, encoding, 0);
-    input->buf->closecallback = NULL;
 
     return(xmlCtxtParseDocument(ctxt, input));
 }
