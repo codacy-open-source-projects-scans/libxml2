@@ -624,7 +624,6 @@ static const char* const xmlXPathErrorMessages[] = {
 /**
  * xmlXPathErrMemory:
  * @ctxt:  an XPath context
- * @extra:  extra information
  *
  * Handle a memory allocation failure.
  */
@@ -640,7 +639,6 @@ xmlXPathErrMemory(xmlXPathContextPtr ctxt)
 /**
  * xmlXPathPErrMemory:
  * @ctxt:  an XPath parser context
- * @extra:  extra information
  *
  * Handle a memory allocation failure.
  */
@@ -656,7 +654,7 @@ xmlXPathPErrMemory(xmlXPathParserContextPtr ctxt)
 /**
  * xmlXPathErr:
  * @ctxt:  a XPath parser context
- * @error:  the error code
+ * @code:  the error code
  *
  * Handle an XPath error
  */
@@ -8320,12 +8318,15 @@ xmlXPathTranslateFunction(xmlXPathParserContextPtr ctxt, int nargs) {
      * Account for quadratic runtime
      */
     if (ctxt->context->opLimit != 0) {
-        unsigned long f1 = xmlStrlen(from->stringval) / 100;
+        unsigned long f1 = xmlStrlen(from->stringval);
         unsigned long f2 = xmlStrlen(str->stringval);
 
         if ((f1 > 0) && (f2 > 0)) {
-            unsigned long p = f1 > ULONG_MAX / f2 ? ULONG_MAX : f1 * f2;
+            unsigned long p;
 
+            f1 = f1 / 10 + 1;
+            f2 = f2 / 10 + 1;
+            p = f1 > ULONG_MAX / f2 ? ULONG_MAX : f1 * f2;
             if (xmlXPathCheckOpLimit(ctxt, p) < 0)
                 goto error;
         }

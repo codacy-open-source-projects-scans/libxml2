@@ -91,6 +91,10 @@ want_xptr = get_option('xptr')
 want_xptr_locs = get_option('xptr-locs')
 want_zlib = get_option('zlib')
 
+# TODO: Options should be three-valued: "yes", "no", default
+
+# TODO: Legacy defaults
+
 # hard dependencies on options
 
 if want_c14n == true
@@ -176,6 +180,7 @@ endif
 # minimum dependencies
 
 if get_option('minimum')
+    # TODO: This is should allow other options
     want_c14n = false
     want_catalog = false
     want_debug = false
