@@ -412,7 +412,11 @@ if want_modules == true
     endif
 
     if with_modules == false
-        dl_dep = dependency('dl', required: false)
+        if meson.version().version_compare('>=0.62')
+            dl_dep = dependency('dl', required: false)
+        else
+            dl_dep = cc.find_library('dl', required: false)
+        endif
         if dl_dep.found()
             config_h.set10('HAVE_DLOPEN', true)
             xml_deps += dl_dep
@@ -431,6 +435,8 @@ if want_threads == true
         else
             want_threads = false
         endif
+    else
+        threads_dep = dependency('', required: false)
     endif
 endif
 
@@ -699,7 +705,10 @@ xml_lib = library(
     version: meson.project_version(),
 )
 
-xml_dep = declare_dependency(link_with: xml_lib)
+dep_inc = include_directories('include')
+xml_dep = declare_dependency(include_directories: dep_inc, link_with: xml_lib)
+
+meson.override_dependency('libxml-2.0', xml_dep)
 
 ## xmllint tool
 
@@ -752,7 +761,7 @@ foreach check : checks
     exe = executable(
         check,
         files(check + '.c'),
-        dependencies: xml_dep,
+        dependencies: [threads_dep, xml_dep],
         include_directories: config_dir,
     )
     if check != 'testlimits'
