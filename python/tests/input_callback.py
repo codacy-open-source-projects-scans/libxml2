@@ -90,7 +90,7 @@ run_test(desc="Loading entity without custom callback",
         docpath=startURL, catalog=None,
         exp_status="not loaded", exp_err=[
             (-1, "I/O "),
-            (-1, "error : "),
+            (-1, "warning : "),
             (-1, "failed to load \"py://strings/xml/sample.xml\": No such file or directory\n")
             ])
 
@@ -100,7 +100,6 @@ run_test(desc="Loading entity with custom callback",
         docpath=startURL, catalog=None,
         exp_status="loaded", exp_err=[
             (  3, 'failed to load "http://example.com/dtds/sample.dtd": Attempt to load network entity\n'),
-            ( -1, "Attempt to load network entity: http://example.com/dtds/sample.dtd"),
             (  4, "Entity 'sample.entity' not defined\n")
             ])
 
@@ -122,7 +121,7 @@ run_test(desc="Retry loading document after unregistering callback",
         docpath=startURL, catalog=catURL,
         exp_status="not loaded", exp_err=[
             (-1, "I/O "),
-            (-1, "error : "),
+            (-1, "warning : "),
             (-1, "failed to load \"py://strings/xml/sample.xml\": No such file or directory\n")
             ])
 
@@ -142,7 +141,7 @@ run_test(desc="Loading using standard i/o after unregistering all callbacks",
         docpath="tst.xml", catalog=None,
         exp_status="not loaded", exp_err=[
             (-1, "I/O "),
-            (-1, "error : "),
+            (-1, "warning : "),
             (-1, "failed to load \"tst.xml\": No such file or directory\n")
             ])
 

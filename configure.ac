@@ -2,7 +2,7 @@ dnl Process this file with autoconf to produce a configure script.
 AC_PREREQ([2.63])
 
 m4_define([MAJOR_VERSION], 2)
-m4_define([MINOR_VERSION], 13)
+m4_define([MINOR_VERSION], 14)
 m4_define([MICRO_VERSION], 0)
 
 AC_INIT([libxml2],[MAJOR_VERSION.MINOR_VERSION.MICRO_VERSION])
@@ -68,13 +68,11 @@ AC_ARG_WITH(c14n,
 AC_ARG_WITH(catalog,
 [  --with-catalog          XML Catalogs support (on)])
 AC_ARG_WITH(debug,
-[  --with-debug            debugging module and shell (on)])
-AC_ARG_WITH(ftp,
-[  --with-ftp              FTP support (off)])
+[  --with-debug            debugging module (on)])
 AC_ARG_WITH(history,
-[  --with-history          history support for shell (off)])
+[  --with-history          history support for xmllint shell (off)])
 AC_ARG_WITH(readline,
-[  --with-readline[[=DIR]]   use readline in DIR (for shell history)])
+[  --with-readline[[=DIR]]   use readline in DIR for shell (on)])
 AC_ARG_WITH(html,
 [  --with-html             HTML parser (on)])
 AC_ARG_WITH(http,
@@ -111,8 +109,6 @@ AC_ARG_WITH(threads,
 [  --with-threads          multithreading support (on)])
 AC_ARG_WITH(thread-alloc,
 [  --with-thread-alloc     per-thread malloc hooks (off)])
-AC_ARG_WITH(tree,
-[  --with-tree             DOM like tree manipulation APIs (on)])
 AC_ARG_WITH(valid,
 [  --with-valid            DTD validation support (on)])
 AC_ARG_WITH(writer,
@@ -123,8 +119,6 @@ AC_ARG_WITH(xpath,
 [  --with-xpath            XPath 1.0 support (on)])
 AC_ARG_WITH(xptr,
 [  --with-xptr             XPointer support (on)])
-AC_ARG_WITH(xptr-locs,
-[  --with-xptr-locs        XPointer ranges and points (off)])
 AC_ARG_WITH(zlib,
 [  --with-zlib[[=DIR]]       use libz in DIR (off)])
 
@@ -179,10 +173,6 @@ if test "$with_schematron" = "yes"; then
         echo WARNING: --with-schematron overrides --without-pattern
     fi
     with_pattern=yes
-    if test "$with_tree" = "no"; then
-        echo WARNING: --with-schematron overrides --without-tree
-    fi
-    with_tree=yes
     if test "$with_xpath" = "no"; then
         echo WARNING: --with-schematron overrides --without-xpath
     fi
@@ -193,10 +183,6 @@ if test "$with_reader" = "yes"; then
         echo WARNING: --with-reader overrides --without-push
     fi
     with_push=yes
-    if test "$with_tree" = "no"; then
-        echo WARNING: --with-reader overrides --without-tree
-    fi
-    with_tree=yes
 fi
 if test "$with_writer" = "yes"; then
     if test "$with_output" = "no"; then
@@ -213,12 +199,6 @@ if test "$with_xinclude" = "yes"; then
         echo WARNING: --with-xinclude overrides --without-xpath
     fi
     with_xpath=yes
-fi
-if test "$with_xptr_locs" = "yes"; then
-    if test "$with_xptr" = "no"; then
-        echo WARNING: --with-xptr-locs overrides --without-xptr
-    fi
-    with_xptr=yes
 fi
 if test "$with_xptr" = "yes"; then
     if test "$with_xpath" = "no"; then
@@ -253,7 +233,6 @@ if test "$with_minimum" = "yes"; then
     test "$with_schematron" = "" && with_schematron=no
     test "$with_threads" = "" && with_threads=no
     test "$with_thread_alloc" = "" && with_thread_alloc=no
-    test "$with_tree" = "" && with_tree=no
     test "$with_valid" = "" && with_valid=no
     test "$with_writer" = "" && with_writer=no
     test "$with_xinclude" = "" && with_xinclude=no
@@ -279,10 +258,6 @@ else
     fi
     if test "$with_regexps" = "no"; then
         with_schemas=no
-    fi
-    if test "$with_tree" = "no"; then
-        with_reader=no
-        with_schematron=no
     fi
     if test "$with_xpath" = "no"; then
         with_c14n=no
@@ -320,7 +295,7 @@ AH_VERBATIM([HAVE_MUNMAP_AFTER],[/* mmap() is no good without munmap() */
 dnl
 dnl Checks for inet libraries
 dnl
-if test "$with_http" = "yes" || test "$with_ftp" = "yes"; then
+if test "$with_http" = "yes"; then
     AC_CHECK_HEADERS([sys/socket.h netinet/in.h arpa/inet.h netdb.h])
     AC_CHECK_HEADERS([sys/select.h poll.h])
 
@@ -421,7 +396,7 @@ if test "$with_tls" = "yes"; then
     AC_COMPILE_IFELSE([
         AC_LANG_SOURCE([__declspec(thread) int v;]) ], [
         AC_DEFINE([XML_THREAD_LOCAL], [__declspec(thread)], [TLS specifier]) ], [
-    WARN_NO_TLS=1 ])])])
+    ])])])
 fi
 
 dnl Checking whether __attribute__((destructor)) is accepted by the compiler
@@ -438,24 +413,27 @@ dnl
 dnl Linker version scripts for symbol versioning
 dnl
 VERSION_SCRIPT_FLAGS=
-# lt_cv_prog_gnu_ld is from libtool 2.+
-if test "$lt_cv_prog_gnu_ld" = yes; then
-  case $host in
-    *-*-cygwin* | *-*-mingw* | *-*-msys* )
-      ;;
-    *)
-      dnl lld 16 defaults to --no-undefined-version but the version script
-      dnl can contain symbols disabled by configuration options.
-      AX_APPEND_LINK_FLAGS([-Wl,--undefined-version], [VERSION_SCRIPT_FLAGS])
-      AX_APPEND_FLAG([-Wl,--version-script=], [VERSION_SCRIPT_FLAGS])
-      ;;
-  esac
-else
-  case $host in
-  *-*-sunos*) VERSION_SCRIPT_FLAGS="-Wl,-M -Wl,";;
-  esac
+if test "$with_legacy" = "yes"; then
+    # lt_cv_prog_gnu_ld is from libtool 2.+
+    if test "$lt_cv_prog_gnu_ld" = yes; then
+        case $host in
+            *-*-cygwin* | *-*-mingw* | *-*-msys* )
+                ;;
+            *)
+                dnl lld 16 defaults to --no-undefined-version but the version
+                dnl script can contain symbols disabled by configuration
+                dnl options.
+                AX_APPEND_LINK_FLAGS([-Wl,--undefined-version], [VERSION_SCRIPT_FLAGS])
+                AX_APPEND_FLAG([-Wl,--version-script=], [VERSION_SCRIPT_FLAGS])
+                ;;
+        esac
+    else
+        case $host in
+        *-*-sunos*) VERSION_SCRIPT_FLAGS="-Wl,-M -Wl,";;
+        esac
+    fi
+    AC_SUBST(VERSION_SCRIPT_FLAGS)
 fi
-AC_SUBST(VERSION_SCRIPT_FLAGS)
 AM_CONDITIONAL([USE_VERSION_SCRIPT], [test -n "$VERSION_SCRIPT_FLAGS"])
 
 dnl
@@ -510,23 +488,6 @@ esac
 dnl
 dnl Simple API modules
 dnl
-
-if test "$with_tree" = "no" ; then
-    echo Disabling DOM like tree manipulation APIs
-    WITH_TREE=0
-else
-    WITH_TREE=1
-fi
-AC_SUBST(WITH_TREE)
-
-if test "$with_ftp" != "yes" ; then
-    WITH_FTP=0
-else
-    echo Enabling FTP support
-    WITH_FTP=1
-fi
-AC_SUBST(WITH_FTP)
-AM_CONDITIONAL(WITH_FTP_SOURCES, test "$WITH_FTP" = "1")
 
 if test "$with_http" != "yes" ; then
     WITH_HTTP=0
@@ -620,20 +581,11 @@ AM_CONDITIONAL(WITH_CATALOG_SOURCES, test "$WITH_CATALOG" = "1")
 if test "$with_xptr" = "no" ; then
     echo Disabling XPointer support
     WITH_XPTR=0
-    WITH_XPTR_LOCS=0
 else
     WITH_XPTR=1
 fi
 AC_SUBST(WITH_XPTR)
 AM_CONDITIONAL(WITH_XPTR_SOURCES, test "$WITH_XPTR" = "1")
-
-if test "$with_xptr_locs" != "yes" ; then
-    WITH_XPTR_LOCS=0
-else
-    echo Enabling Xpointer locations support
-    WITH_XPTR_LOCS=1
-fi
-AC_SUBST(WITH_XPTR_LOCS)
 
 if test "$with_c14n" = "no" ; then
     echo Disabling C14N support
@@ -779,6 +731,10 @@ if test "$with_modules" != "no" ; then
                 AC_DEFINE([HAVE_SHLLOAD], [], [Have shl_load based dso])])])
         LIBS=$_libs
     fi
+
+    if test "$WITH_MODULES" = "0"; then
+        AC_MSG_ERROR([dlopen or equivalent not found])
+    fi
 fi
 
 AC_SUBST(WITH_MODULES)
@@ -790,7 +746,6 @@ dnl
 dnl Thread-related stuff
 dnl
 THREAD_LIBS=""
-BASE_THREAD_LIBS=""
 WITH_THREADS=0
 WITH_THREAD_ALLOC=0
 
@@ -817,29 +772,25 @@ else
             ;;
     esac
 
-    case $host_os in
-        *linux*)
-            if test "${GCC}" = "yes" ; then
-                BASE_THREAD_LIBS="$THREAD_LIBS"
-                THREAD_LIBS=""
-            fi
-            ;;
-    esac
+    if test "$WITH_THREADS" = "0"; then
+        AC_MSG_ERROR([libpthread not found])
+    fi
 fi
 if test "$with_thread_alloc" = "yes" && test "$WITH_THREADS" = "1" ; then
     WITH_THREAD_ALLOC=1
 fi
 
 AC_SUBST(THREAD_LIBS)
-AC_SUBST(BASE_THREAD_LIBS)
 AC_SUBST(WITH_THREADS)
 AC_SUBST(WITH_THREAD_ALLOC)
 
 dnl
-dnl xmllint shell history
+dnl xmllint shell
 dnl
-if test "$with_history" = "yes" && test "$with_readline" != "no"; then
-    echo Enabling xmllint shell history
+if test "$with_readline" != "no"; then
+    _cppflags=$CPPFLAGS
+    _libs=$LIBS
+
     dnl check for terminal library. this is a very cool solution
     dnl from octave's configure.in
     unset tcap
@@ -848,21 +799,11 @@ if test "$with_history" = "yes" && test "$with_readline" != "no"; then
 	test -n "$tcap" && break
     done
 
-    _cppflags=$CPPFLAGS
-    _libs=$LIBS
     if test "$with_readline" != "" && test "$with_readline" != "yes"; then
         RDL_DIR=$with_readline
         CPPFLAGS="${CPPFLAGS} -I$RDL_DIR/include"
         LIBS="${LIBS} -L$RDL_DIR/lib"
     fi
-    AC_CHECK_HEADER(readline/history.h,
-	AC_CHECK_LIB(history, append_history,[
-	    RDL_LIBS="-lhistory"
-            if test "x${RDL_DIR}" != "x"; then
-                RDL_CFLAGS="-I$RDL_DIR/include"
-                RDL_LIBS="-L$RDL_DIR/lib $RDL_LIBS"
-            fi
-	    AC_DEFINE([HAVE_LIBHISTORY], [], [Define if history library is there (-lhistory)])]))
     AC_CHECK_HEADER(readline/readline.h,
 	AC_CHECK_LIB(readline, readline,[
 	    RDL_LIBS="-lreadline $RDL_LIBS $tcap"
@@ -871,6 +812,19 @@ if test "$with_history" = "yes" && test "$with_readline" != "no"; then
                 RDL_LIBS="-L$RDL_DIR/lib $RDL_LIBS"
             fi
 	    AC_DEFINE([HAVE_LIBREADLINE], [], [Define if readline library is there (-lreadline)])], , $tcap))
+
+    if test "$with_history" = "yes"; then
+        echo Enabling xmllint shell history
+        AC_CHECK_HEADER(readline/history.h,
+            AC_CHECK_LIB(history, append_history,[
+                RDL_LIBS="-lhistory"
+                if test "x${RDL_DIR}" != "x"; then
+                    RDL_CFLAGS="-I$RDL_DIR/include"
+                    RDL_LIBS="-L$RDL_DIR/lib $RDL_LIBS"
+                fi
+                AC_DEFINE([HAVE_LIBHISTORY], [], [Define if history library is there (-lhistory)])]))
+    fi
+
     CPPFLAGS=$_cppflags
     LIBS=$_libs
 fi
@@ -924,6 +878,10 @@ if test "$with_zlib" != "no" && test "$with_zlib" != ""; then
         LIBS=$_libs
     fi
 
+    if test "$WITH_ZLIB" = "0"; then
+        AC_MSG_ERROR([zlib not found])
+    fi
+
     XML_PRIVATE_CFLAGS="${XML_PRIVATE_CFLAGS} ${Z_CFLAGS}"
     XML_PRIVATE_LIBS="${XML_PRIVATE_LIBS} ${Z_LIBS}"
 fi
@@ -974,6 +932,10 @@ if test "$with_lzma" != "no" && test "$with_lzma" != ""; then
         LIBS=$_libs
     fi
 
+    if test "$WITH_LZMA" = "0"; then
+        AC_MSG_ERROR([liblzma not found])
+    fi
+
     XML_PRIVATE_CFLAGS="${XML_PRIVATE_CFLAGS} ${LZMA_CFLAGS}"
     XML_PRIVATE_LIBS="${XML_PRIVATE_LIBS} ${LZMA_LIBS}"
 fi
@@ -1013,6 +975,11 @@ else
             AC_MSG_RESULT([no])
         ])
     ])
+
+    if test "$WITH_ICONV" = "0"; then
+        AC_MSG_ERROR([libiconv not found])
+    fi
+
     if test "$WITH_ICONV" = "1" && test "$ICONV_DIR" != ""; then
         ICONV_CFLAGS="-I$ICONV_DIR/include"
         ICONV_LIBS="-L$ICONV_DIR/lib $ICONV_LIBS"
@@ -1072,6 +1039,10 @@ if test "$with_icu" != "no" && test "$with_icu" != "" ; then
             CPPFLAGS=$_cppflags
             LIBS=$_libs
         fi
+    fi
+
+    if test "$WITH_ICU" = "0"; then
+        AC_MSG_ERROR([ICU not found])
     fi
 
     XML_PRIVATE_CFLAGS="${XML_PRIVATE_CFLAGS} ${ICU_CFLAGS}"
@@ -1140,11 +1111,3 @@ AC_CONFIG_FILES([Makefile include/Makefile include/libxml/Makefile include/priva
 AC_CONFIG_FILES([python/setup.py], [chmod +x python/setup.py])
 AC_CONFIG_FILES([xml2-config], [chmod +x xml2-config])
 AC_OUTPUT
-
-if test "$WARN_NO_TLS" != ""; then
-    echo "================================================================"
-    echo "WARNING: Your C compiler appears to not support thread-local"
-    echo "storage. Future versions of libxml2 will require this feature"
-    echo "for multi-threading."
-    echo "================================================================"
-fi

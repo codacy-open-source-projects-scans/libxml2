@@ -10,10 +10,14 @@
 #ifndef __XML_IO_H__
 #define __XML_IO_H__
 
+/** DOC_DISABLE */
 #include <stdio.h>
 #include <libxml/xmlversion.h>
 #include <libxml/encoding.h>
+#define XML_TREE_INTERNALS
 #include <libxml/tree.h>
+#undef XML_TREE_INTERNALS
+/** DOC_ENABLE */
 
 #ifdef __cplusplus
 extern "C" {
@@ -391,26 +395,6 @@ XML_DEPRECATED
 XMLPUBFUN int
 	xmlIOHTTPClose			(void * context);
 #endif /* LIBXML_HTTP_ENABLED */
-
-/**
- * Default 'ftp://' protocol callbacks
- */
-#if defined(LIBXML_FTP_ENABLED)
-XML_DEPRECATED
-XMLPUBFUN int
-	xmlIOFTPMatch			(const char *filename);
-XML_DEPRECATED
-XMLPUBFUN void *
-	xmlIOFTPOpen			(const char *filename);
-XML_DEPRECATED
-XMLPUBFUN int
-	xmlIOFTPRead			(void * context,
-					 char * buffer,
-					 int len);
-XML_DEPRECATED
-XMLPUBFUN int
-	xmlIOFTPClose			(void * context);
-#endif /* defined(LIBXML_FTP_ENABLED) */
 
 XMLPUBFUN xmlParserInputBufferCreateFilenameFunc
 	xmlParserInputBufferCreateFilenameDefault(

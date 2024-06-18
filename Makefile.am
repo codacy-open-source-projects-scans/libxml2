@@ -19,7 +19,6 @@ check_PROGRAMS = \
 	runtest \
 	runxmlconf \
 	testModule \
-	testThreads \
 	testapi \
 	testchar \
 	testdict \
@@ -55,9 +54,6 @@ endif
 if WITH_DEBUG_SOURCES
 libxml2_la_SOURCES += debugXML.c
 endif
-if WITH_FTP_SOURCES
-libxml2_la_SOURCES += nanoftp.c
-endif
 if WITH_HTML_SOURCES
 libxml2_la_SOURCES += HTMLparser.c HTMLtree.c
 endif
@@ -66,9 +62,6 @@ libxml2_la_SOURCES += nanohttp.c
 endif
 if WITH_LEGACY_SOURCES
 libxml2_la_SOURCES += legacy.c
-if WITH_SAX1_SOURCES
-libxml2_la_SOURCES += SAX.c
-endif
 endif
 if WITH_LZMA_SOURCES
 libxml2_la_SOURCES += xzlib.c
@@ -113,13 +106,9 @@ endif
 DEPS = libxml2.la
 LDADDS = libxml2.la
 
-
-m4datadir = $(datadir)/aclocal
-dist_m4data_DATA = libxml.m4
-
 runtest_SOURCES=runtest.c
 runtest_DEPENDENCIES = $(DEPS)
-runtest_LDADD= $(BASE_THREAD_LIBS) $(THREAD_LIBS) $(LDADDS)
+runtest_LDADD= $(THREAD_LIBS) $(LDADDS)
 
 testrecurse_SOURCES=testrecurse.c
 testrecurse_DEPENDENCIES = $(DEPS)
@@ -145,7 +134,7 @@ runsuite_SOURCES=runsuite.c
 runsuite_DEPENDENCIES = $(DEPS)
 runsuite_LDADD= $(LDADDS)
 
-xmllint_SOURCES=xmllint.c
+xmllint_SOURCES = xmllint.c shell.c
 xmllint_CFLAGS = $(AM_CFLAGS) $(RDL_CFLAGS) $(ICONV_CFLAGS)
 xmllint_DEPENDENCIES = $(DEPS)
 xmllint_LDADD=  $(RDL_LIBS) $(LDADDS)
@@ -154,10 +143,6 @@ xmlcatalog_SOURCES=xmlcatalog.c
 xmlcatalog_CFLAGS = $(AM_CFLAGS) $(RDL_CFLAGS) $(ICONV_CFLAGS)
 xmlcatalog_DEPENDENCIES = $(DEPS)
 xmlcatalog_LDADD = $(RDL_LIBS) $(LDADDS)
-
-testThreads_SOURCES = testThreads.c
-testThreads_DEPENDENCIES = $(DEPS)
-testThreads_LDADD= $(BASE_THREAD_LIBS) $(THREAD_LIBS) $(LDADDS)
 
 testModule_SOURCES=testModule.c
 testModule_DEPENDENCIES = $(DEPS)
@@ -191,7 +176,6 @@ check-local:
 	$(CHECKER) ./testdict$(EXEEXT)
 	$(CHECKER) ./testparser$(EXEEXT)
 	$(CHECKER) ./testModule$(EXEEXT)
-	$(CHECKER) ./testThreads$(EXEEXT)
 	$(CHECKER) ./runxmlconf$(EXEEXT)
 	$(CHECKER) ./runsuite$(EXEEXT)
 

@@ -290,7 +290,8 @@ xmlAddEntity(xmlDocPtr doc, int extSubset, const xmlChar *name, int type,
 	dtd->last = (xmlNodePtr) ret;
     }
 
-    *out = ret;
+    if (out != NULL)
+        *out = ret;
     return(0);
 }
 
@@ -849,7 +850,6 @@ xmlFreeEntitiesTable(xmlEntitiesTablePtr table) {
     xmlHashFree(table, xmlFreeEntityWrapper);
 }
 
-#ifdef LIBXML_TREE_ENABLED
 /**
  * xmlCopyEntity:
  * @ent:  An entity
@@ -919,7 +919,6 @@ xmlEntitiesTablePtr
 xmlCopyEntitiesTable(xmlEntitiesTablePtr table) {
     return(xmlHashCopySafe(table, xmlCopyEntity, xmlFreeEntityWrapper));
 }
-#endif /* LIBXML_TREE_ENABLED */
 
 #ifdef LIBXML_OUTPUT_ENABLED
 

@@ -6,12 +6,13 @@
  * daniel@veillard.com
  */
 
-#include "config.h"
+#include "libxml.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 
+#include <libxml/catalog.h>
 #include <libxml/parser.h>
 #include <libxml/parserInternals.h>
 #include <libxml/tree.h>
@@ -76,7 +77,6 @@ static int nb_internals = 0;
 static int nb_schematas = 0;
 static int nb_unimplemented = 0;
 static int nb_leaks = 0;
-static int extraMemoryFromResolver = 0;
 
 static int
 fatalError(void) {
@@ -113,42 +113,23 @@ static int addEntity(char *name, char *content) {
     return(0);
 }
 
-/*
- * We need to trap calls to the resolver to not account memory for the catalog
- * which is shared to the current running test. We also don't want to have
- * network downloads modifying tests.
- */
-static xmlParserInputPtr
-testExternalEntityLoader(const char *URL, const char *ID,
-			 xmlParserCtxtPtr ctxt) {
-    xmlParserInputPtr ret;
+static int
+testResourceLoader(void *vctxt ATTRIBUTE_UNUSED, const char *URL,
+                   const char *ID ATTRIBUTE_UNUSED,
+                   xmlResourceType type ATTRIBUTE_UNUSED,
+                   int flags ATTRIBUTE_UNUSED, xmlParserInputPtr *out) {
     int i;
 
-    for (i = 0;i < nb_entities;i++) {
+    for (i = 0; i < nb_entities; i++) {
         if (!strcmp(testEntitiesName[i], URL)) {
-	    ret = xmlNewStringInputStream(ctxt,
-	                (const xmlChar *) testEntitiesValue[i]);
-	    if (ret != NULL) {
-	        ret->filename = (const char *)
-		                xmlStrdup((xmlChar *)testEntitiesName[i]);
-	    }
-	    return(ret);
+	    *out = xmlInputCreateString(testEntitiesName[i],
+                                        testEntitiesValue[i],
+                                        XML_INPUT_BUF_STATIC);
+	    return(XML_ERR_OK);
 	}
     }
-    if (checkTestFile(URL)) {
-	ret = xmlNoNetExternalEntityLoader(URL, ID, ctxt);
-    } else {
-	int memused = xmlMemUsed();
-	ret = xmlNoNetExternalEntityLoader(URL, ID, ctxt);
-	extraMemoryFromResolver += xmlMemUsed() - memused;
-    }
-#if 0
-    if (ret == NULL) {
-        fprintf(stderr, "Failed to find resource %s\n", URL);
-    }
-#endif
 
-    return(ret);
+    return(xmlInputCreateUrl(URL, 0, out));
 }
 
 /*
@@ -203,7 +184,6 @@ static void
 initializeLibxml2(void) {
     xmlMemSetup(xmlMemFree, xmlMemMalloc, xmlMemRealloc, xmlMemoryStrdup);
     xmlInitParser();
-    xmlSetExternalEntityLoader(testExternalEntityLoader);
     ctxtXPath = xmlXPathNewContext(NULL);
     /*
     * Deactivate the cache if created; otherwise we have to create/free it
@@ -220,6 +200,10 @@ initializeLibxml2(void) {
     xmlXPathRegisterNs(ctxtXPath, BAD_CAST "xlink",
                        BAD_CAST "http://www.w3.org/1999/xlink");
     xmlSetGenericErrorFunc(NULL, testErrorHandler);
+#ifdef LIBXML_CATALOG_ENABLED
+    xmlInitializeCatalog();
+    xmlCatalogSetDefaults(XML_CATA_ALLOW_NONE);
+#endif
 #ifdef LIBXML_SCHEMAS_ENABLED
     xmlSchemaInitTypes();
     xmlRelaxNGInitTypes();
@@ -308,7 +292,6 @@ xsdIncorrectTestCase(xmlNodePtr cur) {
     }
 
     memt = xmlMemUsed();
-    extraMemoryFromResolver = 0;
     /*
      * dump the schemas to a buffer, then reparse it and compile the schemas
      */
@@ -319,9 +302,11 @@ xsdIncorrectTestCase(xmlNodePtr cur) {
     }
     xmlBufferSetAllocationScheme(buf, XML_BUFFER_ALLOC_DOUBLEIT);
     xmlNodeDump(buf, test->doc, test, 0, 0);
-    pctxt = xmlRelaxNGNewMemParserCtxt((const char *)buf->content, buf->use);
+    pctxt = xmlRelaxNGNewMemParserCtxt(
+            (const char *) xmlBufferContent(buf), xmlBufferLength(buf));
     xmlRelaxNGSetParserErrors(pctxt, testErrorHandler, testErrorHandler,
             pctxt);
+    xmlRelaxNGSetResourceLoader(pctxt, testResourceLoader, NULL);
     rng = xmlRelaxNGParse(pctxt);
     xmlRelaxNGFreeParserCtxt(pctxt);
     if (rng != NULL) {
@@ -337,7 +322,7 @@ done:
     if (rng != NULL)
         xmlRelaxNGFree(rng);
     xmlResetLastError();
-    if ((memt < xmlMemUsed()) && (extraMemoryFromResolver == 0)) {
+    if (memt != xmlMemUsed()) {
 	test_log("Validation of tests starting line %ld leaked %d\n",
 		xmlGetLineNo(cur), xmlMemUsed() - memt);
 	nb_leaks++;
@@ -365,7 +350,7 @@ installResources(xmlNodePtr tst, const xmlChar *base) {
 	    xmlBufferEmpty(buf);
 	    xmlNodeDump(buf, test->doc, test, 0, 0);
 	    name = getString(tst, "string(@name)");
-	    content = xmlStrdup(buf->content);
+	    content = xmlStrdup(xmlBufferContent(buf));
 	    if ((name != NULL) && (content != NULL)) {
 	        res = composeDir(base, name);
 		xmlFree(name);
@@ -443,7 +428,6 @@ xsdTestCase(xmlNodePtr tst) {
     }
 
     memt = xmlMemUsed();
-    extraMemoryFromResolver = 0;
     /*
      * dump the schemas to a buffer, then reparse it and compile the schemas
      */
@@ -454,13 +438,13 @@ xsdTestCase(xmlNodePtr tst) {
     }
     xmlBufferSetAllocationScheme(buf, XML_BUFFER_ALLOC_DOUBLEIT);
     xmlNodeDump(buf, test->doc, test, 0, 0);
-    pctxt = xmlRelaxNGNewMemParserCtxt((const char *)buf->content, buf->use);
+    pctxt = xmlRelaxNGNewMemParserCtxt(
+            (const char *) xmlBufferContent(buf), xmlBufferLength(buf));
     xmlRelaxNGSetParserErrors(pctxt, testErrorHandler, testErrorHandler,
             pctxt);
+    xmlRelaxNGSetResourceLoader(pctxt, testResourceLoader, NULL);
     rng = xmlRelaxNGParse(pctxt);
     xmlRelaxNGFreeParserCtxt(pctxt);
-    if (extraMemoryFromResolver)
-        memt = 0;
 
     if (rng == NULL) {
         test_log("Failed to parse RNGtest line %ld\n",
@@ -490,9 +474,8 @@ xsdTestCase(xmlNodePtr tst) {
 	     * We are ready to run the test
 	     */
 	    mem = xmlMemUsed();
-	    extraMemoryFromResolver = 0;
-            doc = xmlReadMemory((const char *)buf->content, buf->use,
-	                        "test", NULL, 0);
+            doc = xmlReadMemory((const char *) xmlBufferContent(buf),
+                                xmlBufferLength(buf), "test", NULL, 0);
 	    if (doc == NULL) {
 		test_log("Failed to parse valid instance line %ld\n",
 			xmlGetLineNo(tmp));
@@ -516,7 +499,7 @@ xsdTestCase(xmlNodePtr tst) {
 		xmlFreeDoc(doc);
 	    }
 	    xmlResetLastError();
-	    if ((mem != xmlMemUsed()) && (extraMemoryFromResolver == 0)) {
+	    if (mem != xmlMemUsed()) {
 	        test_log("Validation of instance line %ld leaked %d\n",
 		        xmlGetLineNo(tmp), xmlMemUsed() - mem);
 	        nb_leaks++;
@@ -544,9 +527,8 @@ xsdTestCase(xmlNodePtr tst) {
 	     * We are ready to run the test
 	     */
 	    mem = xmlMemUsed();
-	    extraMemoryFromResolver = 0;
-            doc = xmlReadMemory((const char *)buf->content, buf->use,
-	                        "test", NULL, 0);
+            doc = xmlReadMemory((const char *) xmlBufferContent(buf),
+                                xmlBufferLength(buf), "test", NULL, 0);
 	    if (doc == NULL) {
 		test_log("Failed to parse valid instance line %ld\n",
 			xmlGetLineNo(tmp));
@@ -570,7 +552,7 @@ xsdTestCase(xmlNodePtr tst) {
 		xmlFreeDoc(doc);
 	    }
 	    xmlResetLastError();
-	    if ((mem != xmlMemUsed()) && (extraMemoryFromResolver == 0)) {
+	    if (mem != xmlMemUsed()) {
 	        test_log("Validation of instance line %ld leaked %d\n",
 		        xmlGetLineNo(tmp), xmlMemUsed() - mem);
 	        nb_leaks++;
@@ -962,7 +944,7 @@ done:
     if (validity != NULL) xmlFree(validity);
     if (schemas != NULL) xmlSchemaFree(schemas);
     xmlResetLastError();
-    if ((mem != xmlMemUsed()) && (extraMemoryFromResolver == 0)) {
+    if (mem != xmlMemUsed()) {
 	test_log("Processing test line %ld %s leaked %d\n",
 		xmlGetLineNo(cur), path, xmlMemUsed() - mem);
 	nb_leaks++;

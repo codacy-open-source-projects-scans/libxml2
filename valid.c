@@ -119,7 +119,7 @@ xmlErrValid(xmlValidCtxtPtr ctxt, xmlParserErrors error,
                   NULL, NULL, 0, msg, extra);
 }
 
-#if defined(LIBXML_VALID_ENABLED) || defined(LIBXML_SCHEMAS_ENABLED)
+#ifdef LIBXML_VALID_ENABLED
 /**
  * xmlErrValidNode:
  * @ctxt:  an XML validation parser context
@@ -140,9 +140,7 @@ xmlErrValidNode(xmlValidCtxtPtr ctxt,
     xmlDoErrValid(ctxt, node, error, XML_ERR_ERROR, str1, str2, str3, 0,
                   msg, str1, str2, str3);
 }
-#endif /* LIBXML_VALID_ENABLED or LIBXML_SCHEMAS_ENABLED */
 
-#ifdef LIBXML_VALID_ENABLED
 /**
  * xmlErrValidNodeNr:
  * @ctxt:  an XML validation parser context
@@ -1353,7 +1351,6 @@ xmlFreeElementTable(xmlElementTablePtr table) {
     xmlHashFree(table, xmlFreeElementTableEntry);
 }
 
-#ifdef LIBXML_TREE_ENABLED
 /**
  * xmlCopyElement:
  * @elem:  An element
@@ -1409,7 +1406,6 @@ xmlElementTablePtr
 xmlCopyElementTable(xmlElementTablePtr table) {
     return(xmlHashCopySafe(table, xmlCopyElement, xmlFreeElementTableEntry));
 }
-#endif /* LIBXML_TREE_ENABLED */
 
 #ifdef LIBXML_OUTPUT_ENABLED
 /**
@@ -1519,7 +1515,6 @@ xmlFreeEnumeration(xmlEnumerationPtr cur) {
     }
 }
 
-#ifdef LIBXML_TREE_ENABLED
 /**
  * xmlCopyEnumeration:
  * @cur:  the tree to copy.
@@ -1554,7 +1549,6 @@ xmlCopyEnumeration(xmlEnumerationPtr cur) {
 
     return(ret);
 }
-#endif /* LIBXML_TREE_ENABLED */
 
 #ifdef LIBXML_VALID_ENABLED
 /**
@@ -1892,7 +1886,6 @@ xmlFreeAttributeTable(xmlAttributeTablePtr table) {
     xmlHashFree(table, xmlFreeAttributeTableEntry);
 }
 
-#ifdef LIBXML_TREE_ENABLED
 /**
  * xmlCopyAttribute:
  * @attr:  An attribute
@@ -1958,7 +1951,6 @@ xmlCopyAttributeTable(xmlAttributeTablePtr table) {
     return(xmlHashCopySafe(table, xmlCopyAttribute,
                            xmlFreeAttributeTableEntry));
 }
-#endif /* LIBXML_TREE_ENABLED */
 
 #ifdef LIBXML_OUTPUT_ENABLED
 /**
@@ -2150,7 +2142,6 @@ xmlFreeNotationTable(xmlNotationTablePtr table) {
     xmlHashFree(table, xmlFreeNotationTableEntry);
 }
 
-#ifdef LIBXML_TREE_ENABLED
 /**
  * xmlCopyNotation:
  * @nota:  A notation
@@ -2202,7 +2193,6 @@ xmlNotationTablePtr
 xmlCopyNotationTable(xmlNotationTablePtr table) {
     return(xmlHashCopySafe(table, xmlCopyNotation, xmlFreeNotationTableEntry));
 }
-#endif /* LIBXML_TREE_ENABLED */
 
 #ifdef LIBXML_OUTPUT_ENABLED
 /**
@@ -3157,7 +3147,7 @@ xmlGetDtdNotationDesc(xmlDtdPtr dtd, const xmlChar *name) {
     return(xmlHashLookup(table, name));
 }
 
-#if defined(LIBXML_VALID_ENABLED) || defined(LIBXML_SCHEMAS_ENABLED)
+#ifdef LIBXML_VALID_ENABLED
 /**
  * xmlValidateNotationUse:
  * @ctxt:  the validation context
@@ -3183,7 +3173,7 @@ xmlValidateNotationUse(xmlValidCtxtPtr ctxt, xmlDocPtr doc,
     if ((notaDecl == NULL) && (doc->extSubset != NULL))
 	notaDecl = xmlGetDtdNotationDesc(doc->extSubset, notationName);
 
-    if ((notaDecl == NULL) && (ctxt != NULL)) {
+    if (notaDecl == NULL) {
 	xmlErrValidNode(ctxt, (xmlNodePtr) doc, XML_DTD_UNKNOWN_NOTATION,
 	                "NOTATION %s is not declared\n",
 		        notationName, NULL, NULL);
@@ -3191,7 +3181,7 @@ xmlValidateNotationUse(xmlValidCtxtPtr ctxt, xmlDocPtr doc,
     }
     return(1);
 }
-#endif /* LIBXML_VALID_ENABLED or LIBXML_SCHEMAS_ENABLED */
+#endif /* LIBXML_VALID_ENABLED */
 
 /**
  * xmlIsMixedElement:

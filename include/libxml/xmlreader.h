@@ -18,7 +18,6 @@
 #include <libxml/relaxng.h>
 #include <libxml/xmlschemas.h>
 #endif
-/* for compatibility */
 #include <libxml/parser.h>
 
 #ifdef __cplusplus
@@ -425,6 +424,11 @@ XMLPUBFUN void
 	    xmlTextReaderGetErrorHandler(xmlTextReaderPtr reader,
 					 xmlTextReaderErrorFunc *f,
 					 void **arg);
+
+XMLPUBFUN void
+	    xmlTextReaderSetResourceLoader(xmlTextReaderPtr reader,
+					   xmlResourceLoader loader,
+					   void *data);
 
 #endif /* LIBXML_READER_ENABLED */
 

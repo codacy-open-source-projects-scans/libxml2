@@ -3,7 +3,6 @@
 # [X] c14n
 # [X] catalog
 # [X] debugging
-# [X] ftp         - not minimum
 # [X] history
 # [X] html
 # [X] http
@@ -27,13 +26,11 @@
 # [X] threads
 # [X] thread-alloc
 # [X] tls
-# [X] tree
 # [X] valid
 # [X] writer
 # [X] xinclude
 # [X] xpath
 # [X] xptr
-# [X] xptr-locs
 # [X] zlib
 
 # [X] minimum
@@ -59,12 +56,6 @@ option('debuging',
   description: 'Debugging module and shell'
 )
 
-option('ftp',
-  type: 'boolean',
-  value: false,
-  description: 'FTP support'
-)
-
 option('history',
   type: 'boolean',
   value: false,
@@ -85,14 +76,12 @@ option('http',
 
 # TODO meson custom dependency
 option('iconv',
-  type: 'boolean',
-  value: true,
+  type: 'feature',
   description: 'iconv support'
 )
 
 option('icu',
-  type: 'boolean',
-  value: false,
+  type: 'feature',
   description: 'ICU support'
 )
 
@@ -115,14 +104,12 @@ option('legacy',
 )
 
 option('lzma',
-  type: 'boolean',
-  value: false,
+  type: 'feature',
   description: 'LZMA support'
 )
 
 option('modules',
-  type: 'boolean',
-  value: true,
+  type: 'feature',
   description: 'Dynamic modules support'
 )
 
@@ -187,8 +174,7 @@ option('schematron',
 )
 
 option('threads',
-  type: 'boolean',
-  value: true,
+  type: 'feature',
   description: 'Multithreading support'
 )
 
@@ -202,12 +188,6 @@ option('tls',
   type: 'boolean',
   value: false,
   description: 'thread-local storage'
-)
-
-option('tree',
-  type: 'boolean',
-  value: true,
-  description: 'DOM like tree manipulation APIs'
 )
 
 option('valid',
@@ -240,15 +220,8 @@ option('xptr',
   description: 'XPointer support'
 )
 
-option('xptr-locs',
-  type: 'boolean',
-  value: false,
-  description: 'XPointer ranges and points'
-)
-
 option('zlib',
-  type: 'boolean',
-  value: false,
+  type: 'feature',
   description: 'ZLIB support'
 )
 

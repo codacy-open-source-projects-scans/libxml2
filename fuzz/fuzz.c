@@ -56,6 +56,16 @@ xmlFuzzErrorFunc(void *ctx ATTRIBUTE_UNUSED, const char *msg ATTRIBUTE_UNUSED,
                  ...) {
 }
 
+/**
+ * xmlFuzzSErrorFunc:
+ *
+ * A structured error function that simply discards all errors.
+ */
+void
+xmlFuzzSErrorFunc(void *ctx ATTRIBUTE_UNUSED,
+                  const xmlError *error ATTRIBUTE_UNUSED) {
+}
+
 /*
  * Malloc failure injection.
  *
@@ -387,6 +397,33 @@ xmlFuzzMainEntity(size_t *size) {
 }
 
 /**
+ * xmlFuzzResourceLoader:
+ *
+ * The resource loader for fuzz data.
+ */
+int
+xmlFuzzResourceLoader(void *data ATTRIBUTE_UNUSED, const char *URL,
+                      const char *ID ATTRIBUTE_UNUSED,
+                      xmlResourceType type ATTRIBUTE_UNUSED,
+                      int flags ATTRIBUTE_UNUSED, xmlParserInputPtr *out) {
+    xmlParserInputPtr input;
+    xmlFuzzEntityInfo *entity;
+
+    entity = xmlHashLookup(fuzzData.entities, (xmlChar *) URL);
+    if (entity == NULL)
+        return(XML_IO_ENOENT);
+
+    input = xmlInputCreateMemory(URL, entity->data, entity->size,
+                                 XML_INPUT_BUF_STATIC |
+                                 XML_INPUT_BUF_ZERO_TERMINATED);
+    if (input == NULL)
+        return(XML_ERR_NO_MEMORY);
+
+    *out = input;
+    return(XML_ERR_OK);
+}
+
+/**
  * xmlFuzzEntityLoader:
  *
  * The entity loader for fuzz data.
@@ -394,7 +431,7 @@ xmlFuzzMainEntity(size_t *size) {
 xmlParserInputPtr
 xmlFuzzEntityLoader(const char *URL, const char *ID ATTRIBUTE_UNUSED,
                     xmlParserCtxtPtr ctxt) {
-    xmlParserInputPtr input;
+    xmlParserInputBufferPtr buf;
     xmlFuzzEntityInfo *entity;
 
     if (URL == NULL)
@@ -403,26 +440,14 @@ xmlFuzzEntityLoader(const char *URL, const char *ID ATTRIBUTE_UNUSED,
     if (entity == NULL)
         return(NULL);
 
-    input = xmlNewInputStream(ctxt);
-    if (input == NULL)
-        return(NULL);
-    input->filename = (char *) xmlCharStrdup(URL);
-    if (input->filename == NULL) {
+    buf = xmlParserInputBufferCreateMem(entity->data, entity->size,
+                                        XML_CHAR_ENCODING_NONE);
+    if (buf == NULL) {
         xmlCtxtErrMemory(ctxt);
-        xmlFreeInputStream(input);
         return(NULL);
     }
-    input->buf = xmlParserInputBufferCreateMem(entity->data, entity->size,
-                                               XML_CHAR_ENCODING_NONE);
-    if (input->buf == NULL) {
-        xmlCtxtErrMemory(ctxt);
-        xmlFreeInputStream(input);
-        return(NULL);
-    }
-    input->base = input->cur = xmlBufContent(input->buf->buffer);
-    input->end = input->base + xmlBufUse(input->buf->buffer);
 
-    return input;
+    return(xmlNewIOInputStream(ctxt, buf, XML_CHAR_ENCODING_NONE));
 }
 
 char *

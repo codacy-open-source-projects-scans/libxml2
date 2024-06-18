@@ -40,8 +40,6 @@
 
 static int htmlOmittedDefaultValue = 1;
 
-xmlChar * htmlDecodeEntities(htmlParserCtxtPtr ctxt, int len,
-			     xmlChar end, xmlChar  end2, xmlChar end3);
 static void htmlParseComment(htmlParserCtxtPtr ctxt);
 
 /************************************************************************
@@ -4753,12 +4751,9 @@ htmlParseDocument(htmlParserCtxtPtr ctxt) {
     if ((ctxt == NULL) || (ctxt->input == NULL))
 	return(-1);
 
-    /*
-     * Document locator is unused. Only for backward compatibility.
-     */
     if ((ctxt->sax) && (ctxt->sax->setDocumentLocator)) {
-        xmlSAXLocator copy = xmlDefaultSAXLocator;
-        ctxt->sax->setDocumentLocator(ctxt->userData, &copy);
+        ctxt->sax->setDocumentLocator(ctxt->userData,
+                (xmlSAXLocator *) &xmlDefaultSAXLocator);
     }
 
     xmlDetectEncoding(ctxt);
@@ -5297,8 +5292,8 @@ htmlParseTryOrFinish(htmlParserCtxtPtr ctxt, int terminate) {
                     avail = in->end - in->cur;
 		}
                 if ((ctxt->sax) && (ctxt->sax->setDocumentLocator)) {
-                    xmlSAXLocator copy = xmlDefaultSAXLocator;
-                    ctxt->sax->setDocumentLocator(ctxt->userData, &copy);
+                    ctxt->sax->setDocumentLocator(ctxt->userData,
+                            (xmlSAXLocator *) &xmlDefaultSAXLocator);
                 }
 		if ((ctxt->sax) && (ctxt->sax->startDocument) &&
 	            (!ctxt->disableSAX))
@@ -5817,12 +5812,16 @@ htmlCreatePushParserCtxt(htmlSAXHandlerPtr sax, void *user_data,
 	return(NULL);
 
     encoding = xmlGetCharEncodingName(enc);
-    input = xmlNewInputPush(ctxt, filename, chunk, size, encoding);
+    input = xmlInputCreatePush(filename, chunk, size);
     if (input == NULL) {
 	htmlFreeParserCtxt(ctxt);
 	return(NULL);
     }
+
     inputPush(ctxt, input);
+
+    if (encoding != NULL)
+        xmlSwitchEncodingName(ctxt, encoding);
 
     return(ctxt);
 }
