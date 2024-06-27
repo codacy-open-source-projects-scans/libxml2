@@ -17,29 +17,23 @@
 #include <errno.h>
 #include <limits.h>
 
-#ifdef HAVE_SYS_TIME_H
-#include <sys/time.h>
-#endif
-#ifdef HAVE_SYS_TIMEB_H
-#include <sys/timeb.h>
-#endif
-#ifdef HAVE_SYS_STAT_H
-#include <sys/stat.h>
-#endif
-#ifdef HAVE_FCNTL_H
 #include <fcntl.h>
+#include <sys/stat.h>
+
+#ifdef _WIN32
+  #include <io.h>
+  #include <sys/timeb.h>
+#else
+  #include <sys/time.h>
+  #include <unistd.h>
 #endif
-#ifdef HAVE_UNISTD_H
-#include <unistd.h>
-#elif defined (_WIN32)
-#include <io.h>
-#endif
+
 #ifdef HAVE_SYS_MMAN_H
-#include <sys/mman.h>
-/* seems needed for Solaris */
-#ifndef MAP_FAILED
-#define MAP_FAILED ((void *) -1)
-#endif
+  #include <sys/mman.h>
+  /* seems needed for Solaris */
+  #ifndef MAP_FAILED
+    #define MAP_FAILED ((void *) -1)
+  #endif
 #endif
 
 #include <libxml/xmlmemory.h>
@@ -343,33 +337,29 @@ myStrdupFunc(const char *str)
  *									*
  ************************************************************************/
 
-#ifndef HAVE_GETTIMEOFDAY
-#ifdef HAVE_SYS_TIMEB_H
-#ifdef HAVE_SYS_TIME_H
-#ifdef HAVE_FTIME
+typedef struct {
+   unsigned sec;
+   unsigned usec;
+} xmlTime;
 
-static int
-my_gettimeofday(struct timeval *tvp, void *tzp)
-{
-	struct timeb timebuffer;
+static xmlTime begin, end;
 
-	ftime(&timebuffer);
-	if (tvp) {
-		tvp->tv_sec = timebuffer.time;
-		tvp->tv_usec = timebuffer.millitm * 1000L;
-	}
-	return (0);
+static void
+getTime(xmlTime *time) {
+#ifdef _WIN32
+    struct timeb timebuffer;
+
+    ftime(&timebuffer);
+    time->sec = timebuffer.time;
+    time->usec = timebuffer.millitm * 1000L;
+#else /* _WIN32 */
+    struct timeval tv;
+
+    gettimeofday(&tv, NULL);
+    time->sec = tv.tv_sec;
+    time->usec = tv.tv_usec;
+#endif /* _WIN32 */
 }
-#define HAVE_GETTIMEOFDAY 1
-#define gettimeofday my_gettimeofday
-
-#endif /* HAVE_FTIME */
-#endif /* HAVE_SYS_TIME_H */
-#endif /* HAVE_SYS_TIMEB_H */
-#endif /* !HAVE_GETTIMEOFDAY */
-
-#if defined(HAVE_GETTIMEOFDAY)
-static struct timeval begin, end;
 
 /*
  * startTimer: call where you want to start timing
@@ -377,7 +367,7 @@ static struct timeval begin, end;
 static void
 startTimer(void)
 {
-    gettimeofday(&begin, NULL);
+    getTime(&begin);
 }
 
 /*
@@ -391,10 +381,10 @@ endTimer(const char *fmt, ...)
     long msec;
     va_list ap;
 
-    gettimeofday(&end, NULL);
-    msec = end.tv_sec - begin.tv_sec;
+    getTime(&end);
+    msec = end.sec - begin.sec;
     msec *= 1000;
-    msec += (end.tv_usec - begin.tv_usec) / 1000;
+    msec += (end.usec - begin.usec) / 1000;
 
     va_start(ap, fmt);
     vfprintf(ERR_STREAM, fmt, ap);
@@ -402,37 +392,7 @@ endTimer(const char *fmt, ...)
 
     fprintf(ERR_STREAM, " took %ld ms\n", msec);
 }
-#else
-/*
- * No gettimeofday function, so we have to make do with calling clock.
- * This is obviously less accurate, but there's little we can do about
- * that.
- */
-#ifndef CLOCKS_PER_SEC
-#define CLOCKS_PER_SEC 100
-#endif
 
-static clock_t begin, end;
-static void
-startTimer(void)
-{
-    begin = clock();
-}
-static void LIBXML_ATTR_FORMAT(1,2)
-endTimer(const char *fmt, ...)
-{
-    long msec;
-    va_list ap;
-
-    end = clock();
-    msec = ((end - begin) * 1000) / CLOCKS_PER_SEC;
-
-    va_start(ap, fmt);
-    vfprintf(ERR_STREAM, fmt, ap);
-    va_end(ap);
-    fprintf(ERR_STREAM, " took %ld ms\n", msec);
-}
-#endif
 /************************************************************************
  *									*
  *			HTML output					*
@@ -1594,7 +1554,8 @@ static void streamFile(const char *filename) {
     if (memory) {
 	if (stat(filename, &info) < 0)
 	    return;
-	if ((fd = open(filename, O_RDONLY)) < 0)
+	fd = open(filename, O_RDONLY);
+	if (fd < 0)
 	    return;
 	base = mmap(NULL, info.st_size, PROT_READ, MAP_SHARED, fd, 0) ;
 	if (base == (void *) MAP_FAILED) {
@@ -2017,7 +1978,8 @@ parseFile(const char *filename, xmlParserCtxtPtr rectxt) {
 	const char *base;
 	if (stat(filename, &info) < 0)
 	    return(NULL);
-	if ((fd = open(filename, O_RDONLY)) < 0)
+	fd = open(filename, O_RDONLY);
+	if (fd < 0)
 	    return(NULL);
 	base = mmap(NULL, info.st_size, PROT_READ, MAP_SHARED, fd, 0) ;
 	if (base == (void *) MAP_FAILED) {
@@ -2147,7 +2109,8 @@ parseFile(const char *filename, xmlParserCtxtPtr rectxt) {
 
             if (stat(filename, &info) < 0)
                 goto error;
-            if ((fd = open(filename, O_RDONLY)) < 0)
+            fd = open(filename, O_RDONLY);
+            if (fd < 0)
                 goto error;
             base = mmap(NULL, info.st_size, PROT_READ, MAP_SHARED, fd, 0) ;
             if (base == (void *) MAP_FAILED) {
@@ -2528,7 +2491,8 @@ parseAndPrintFile(const char *filename, xmlParserCtxtPtr rectxt) {
 	} else {
 	    xmlValidCtxtPtr cvp;
 
-	    if ((cvp = xmlNewValidCtxt()) == NULL) {
+	    cvp = xmlNewValidCtxt();
+	    if (cvp == NULL) {
 		fprintf(ERR_STREAM,
 			"Couldn't allocate validation context\n");
                 progresult = XMLLINT_ERR_MEM;
@@ -2559,7 +2523,8 @@ parseAndPrintFile(const char *filename, xmlParserCtxtPtr rectxt) {
     } else if (postvalid) {
 	xmlValidCtxtPtr cvp;
 
-	if ((cvp = xmlNewValidCtxt()) == NULL) {
+	cvp = xmlNewValidCtxt();
+	if (cvp == NULL) {
 	    fprintf(ERR_STREAM,
 		    "Couldn't allocate validation context\n");
             progresult = XMLLINT_ERR_MEM;
@@ -3024,6 +2989,12 @@ xmllintMain(int argc, const char **argv, xmlResourceLoader loader) {
     options = XML_PARSE_COMPACT | XML_PARSE_BIG_LINES;
     maxAmpl = 0;
 #endif /* XMLLINT_FUZZ */
+
+#ifdef _WIN32
+    _setmode(_fileno(stdin), _O_BINARY);
+    _setmode(_fileno(stdout), _O_BINARY);
+    _setmode(_fileno(stderr), _O_BINARY);
+#endif
 
     if (argc <= 1) {
 	usage(ERR_STREAM, argv[0]);

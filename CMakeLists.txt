@@ -19,13 +19,13 @@ include(CheckLibraryExists)
 include(CheckLinkerFlag)
 include(CheckStructHasMember)
 include(CheckSymbolExists)
+include(CMakeDependentOption)
 include(CMakePackageConfigHelpers)
 include(FindPkgConfig)
 include(GNUInstallDirs)
 
 option(BUILD_SHARED_LIBS "Build shared libraries" ON)
 set(LIBXML2_WITH_AUTOMATA ON)
-option(LIBXML2_WITH_C14N "Add the Canonicalization support" ON)
 option(LIBXML2_WITH_CATALOG "Add the Catalog support" ON)
 option(LIBXML2_WITH_DEBUG "Add the debugging module" ON)
 set(LIBXML2_WITH_EXPR ON)
@@ -42,27 +42,44 @@ option(LIBXML2_WITH_PATTERN "Add the xmlPattern selection interface" ON)
 option(LIBXML2_WITH_PROGRAMS "Build programs" ON)
 option(LIBXML2_WITH_PUSH "Add the PUSH parser interfaces" ON)
 option(LIBXML2_WITH_PYTHON "Build Python bindings" ON)
-option(LIBXML2_WITH_READER "Add the xmlReader parsing interface" ON)
 option(LIBXML2_WITH_REGEXPS "Add Regular Expressions support" ON)
 option(LIBXML2_WITH_SAX1 "Add the older SAX1 interface" ON)
-option(LIBXML2_WITH_SCHEMAS "Add Relax-NG and Schemas support" ON)
-option(LIBXML2_WITH_SCHEMATRON "Add Schematron support" ON)
 option(LIBXML2_WITH_TESTS "Build tests" ON)
 option(LIBXML2_WITH_THREADS "Add multithread support" ON)
-option(LIBXML2_WITH_THREAD_ALLOC "Add per-thread memory" OFF)
 option(LIBXML2_WITH_TLS "Enable thread-local storage" OFF)
 set(LIBXML2_WITH_UNICODE ON)
 option(LIBXML2_WITH_VALID "Add the DTD validation support" ON)
-option(LIBXML2_WITH_WRITER "Add the xmlWriter saving interface" ON)
-option(LIBXML2_WITH_XINCLUDE "Add the XInclude support" ON)
 option(LIBXML2_WITH_XPATH "Add the XPATH support" ON)
-option(LIBXML2_WITH_XPTR "Add the XPointer support" ON)
 option(LIBXML2_WITH_ZLIB "Use libz" OFF)
+
+cmake_dependent_option(
+    LIBXML2_WITH_C14N "Add the Canonicalization support" ON
+    "LIBXML2_WITH_OUTPUT;LIBXML2_WITH_XPATH" OFF)
+cmake_dependent_option(
+    LIBXML2_WITH_READER "Add the xmlReader parsing interface" ON
+    "LIBXML2_WITH_PUSH" OFF)
+cmake_dependent_option(
+    LIBXML2_WITH_SCHEMAS "Add Relax-NG and Schemas support" ON
+    "LIBXML2_WITH_PATTERN;LIBXML2_WITH_REGEXPS" OFF)
+cmake_dependent_option(
+    LIBXML2_WITH_SCHEMATRON "Add Schematron support" ON
+    "LIBXML2_WITH_PATTERN;LIBXML2_WITH_XPATH" OFF)
+cmake_dependent_option(
+    LIBXML2_WITH_THREAD_ALLOC "Add per-thread memory" OFF
+    "LIBXML2_WITH_THREADS" OFF)
+cmake_dependent_option(
+    LIBXML2_WITH_WRITER "Add the xmlWriter saving interface" ON
+    "LIBXML2_WITH_OUTPUT;LIBXML2_WITH_PUSH" OFF)
+cmake_dependent_option(
+    LIBXML2_WITH_XINCLUDE "Add the XInclude support" ON
+    "LIBXML2_WITH_XPATH" OFF)
+cmake_dependent_option(
+    LIBXML2_WITH_XPTR "Add the XPointer support" ON
+    "LIBXML2_WITH_XPATH" OFF)
+
 set(LIBXML2_XMLCONF_WORKING_DIR ${CMAKE_CURRENT_BINARY_DIR} CACHE PATH "Working directory for XML Conformance Test Suite")
 
 if(LIBXML2_WITH_PYTHON)
-    check_include_files(unistd.h HAVE_UNISTD_H)
-    check_symbol_exists(F_GETFL fcntl.h HAVE_F_GETFL)
     find_package(Python COMPONENTS Interpreter Development REQUIRED)
     #set(LIBXML2_PYTHON_INSTALL_DIR ${Python_SITEARCH} CACHE PATH "Python bindings install directory")
     set(LIBXML2_PYTHON_INSTALL_DIR "${CMAKE_INSTALL_PREFIX}/python"
@@ -121,20 +138,13 @@ if (NOT MSVC)
         void __attribute__((destructor))
         f(void) {}
         int main(void) { return 0; }
-    " HAVE_ATTRIBUTE_DESTRUCTOR)
-    if(HAVE_ATTRIBUTE_DESTRUCTOR)
-        set(ATTRIBUTE_DESTRUCTOR "__attribute__((destructor))")
-    endif()
+    " HAVE_FUNC_ATTRIBUTE_DESTRUCTOR)
     check_include_files(arpa/inet.h HAVE_ARPA_INET_H)
     check_function_exists(class HAVE_CLASS)
     check_include_files(dlfcn.h HAVE_DLFCN_H)
     check_library_exists(dl dlopen "" HAVE_DLOPEN)
     check_include_files(dl.h HAVE_DL_H)
-    check_include_files(fcntl.h HAVE_FCNTL_H)
-    check_function_exists(fpclass HAVE_FPCLASS)
-    check_function_exists(ftime HAVE_FTIME)
     check_function_exists(getentropy HAVE_GETENTROPY)
-    check_function_exists(gettimeofday HAVE_GETTIMEOFDAY)
     check_library_exists(history append_history "" HAVE_LIBHISTORY)
     check_library_exists(readline readline "" HAVE_LIBREADLINE)
     check_function_exists(mmap HAVE_MMAP)
@@ -143,40 +153,11 @@ if (NOT MSVC)
     check_include_files(netinet/in.h HAVE_NETINET_IN_H)
     check_include_files(poll.h HAVE_POLL_H)
     check_library_exists(dld shl_load "" HAVE_SHLLOAD)
-    check_function_exists(stat HAVE_STAT)
     check_include_files(stdint.h HAVE_STDINT_H)
     check_include_files(sys/mman.h HAVE_SYS_MMAN_H)
     check_include_files(sys/random.h HAVE_SYS_RANDOM_H)
     check_include_files(sys/select.h HAVE_SYS_SELECT_H)
     check_include_files(sys/socket.h HAVE_SYS_SOCKET_H)
-    check_include_files(sys/stat.h HAVE_SYS_STAT_H)
-    check_include_files(sys/timeb.h HAVE_SYS_TIMEB_H)
-    check_include_files(sys/time.h HAVE_SYS_TIME_H)
-    check_include_files(unistd.h HAVE_UNISTD_H)
-    check_c_source_compiles("
-        #include <stddef.h>
-        #include <sys/socket.h>
-        int main() { (void) getsockopt(1, 1, 1, NULL, (socklen_t*) NULL); return 0; }
-    " XML_SOCKLEN_T_SOCKLEN_T)
-    if(XML_SOCKLEN_T_SOCKLEN_T)
-        set(XML_SOCKLEN_T socklen_t)
-    else()
-        check_c_source_compiles("
-            #include <stddef.h>
-            #include <sys/socket.h>
-            int main() { (void) getsockopt(1, 1, 1, NULL, (size_t*) NULL); return 0; }
-        " XML_SOCKLEN_T_SIZE_T)
-        if(XML_SOCKLEN_T_SIZE_T)
-            set(XML_SOCKLEN_T size_t)
-        else()
-            check_c_source_compiles("
-                #include <stddef.h>
-                #include <sys/socket.h>
-                int main() { (void) getsockopt (1, 1, 1, NULL, (int*) NULL); return 0; }
-            " XML_SOCKLEN_T_INT)
-            set(XML_SOCKLEN_T int)
-        endif()
-    endif()
 endif()
 
 if(LIBXML2_WITH_TLS)
@@ -334,12 +315,12 @@ target_include_directories(
 if(LIBXML2_WITH_MODULES)
     if(HAVE_DLOPEN)
         target_link_libraries(LibXml2 PRIVATE dl)
-        set(MODULE_PLATFORM_LIBS "-ldl")
+        set(MODULE_LIBS "-ldl")
     endif()
 
     if(HAVE_SHLLOAD)
         target_link_libraries(LibXml2 PRIVATE dld)
-        set(MODULE_PLATFORM_LIBS "-ldld")
+        set(MODULE_LIBS "-ldld")
     endif()
 endif()
 
@@ -585,6 +566,7 @@ install(FILES doc/xmlcatalog.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1 COMPONEN
 install(FILES doc/xmllint.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1 COMPONENT documentation)
 install(DIRECTORY doc/ DESTINATION ${CMAKE_INSTALL_DOCDIR} COMPONENT documentation
     PATTERN "Makefile.*" EXCLUDE
+    PATTERN "meson.build" EXCLUDE
     PATTERN "*.1" EXCLUDE
     PATTERN "*.py" EXCLUDE
     PATTERN "*.res" EXCLUDE
@@ -622,11 +604,7 @@ install(
     COMPONENT development
 )
 
-if(MSVC)
-    configure_file(include/win32config.h config.h COPYONLY)
-else()
-    configure_file(config.h.cmake.in config.h)
-endif()
+configure_file(config.h.cmake.in config.h)
 configure_file(include/libxml/xmlversion.h.in libxml/xmlversion.h)
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/libxml/xmlversion.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/libxml2/libxml COMPONENT development)
 
@@ -635,7 +613,7 @@ if(LIBXML2_WITH_PYTHON)
     configure_file(python/setup.py.in setup.py @ONLY)
 endif()
 
-set(NON_PC_LIBS "${THREAD_LIBS} ${ICONV_LIBS} ${LIBM} ${WINSOCK_LIBS} ${CRYPTO_LIBS}")
+set(NON_PC_LIBS "${THREAD_LIBS} ${ICONV_LIBS} ${LIBM} ${WINSOCK_LIBS} ${CRYPTO_LIBS} ${MODULE_LIBS}")
 list(APPEND XML_PC_LIBS "${NON_PC_LIBS}")
 list(APPEND XML_PRIVATE_LIBS "${NON_PC_LIBS}")
 list(REMOVE_DUPLICATES XML_PC_LIBS)
@@ -654,9 +632,18 @@ if(BUILD_SHARED_LIBS)
     set(XML_PC_LIBS_PRIVATE "
 Libs.private:")
 else()
-    target_compile_definitions(LibXml2 PUBLIC LIBXML_STATIC)
-    set(XML_CFLAGS "-DLIBXML_STATIC")
     set(XML_PRIVATE_LIBS_NO_SHARED "${XML_PRIVATE_LIBS}")
+endif()
+
+if(WIN32)
+    set(XML_STATIC_CFLAGS "-DLIBXML_STATIC")
+    if (BUILD_SHARED_LIBS)
+        set(XML_PC_CFLAGS_PRIVATE "
+Cflags.private:")
+    else()
+        target_compile_definitions(LibXml2 PUBLIC LIBXML_STATIC)
+        set(XML_CFLAGS "${XML_STATIC_CFLAGS}")
+    endif()
 endif()
 
 file(RELATIVE_PATH PACKAGE_RELATIVE_PATH "${CMAKE_INSTALL_FULL_LIBDIR}/pkgconfig" "${CMAKE_INSTALL_PREFIX}")

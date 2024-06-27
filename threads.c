@@ -92,7 +92,8 @@ xmlNewMutex(void)
 {
     xmlMutexPtr tok;
 
-    if ((tok = malloc(sizeof(xmlMutex))) == NULL)
+    tok = malloc(sizeof(xmlMutex));
+    if (tok == NULL)
         return (NULL);
     xmlInitMutex(tok);
     return (tok);
@@ -188,7 +189,8 @@ xmlNewRMutex(void)
 {
     xmlRMutexPtr tok;
 
-    if ((tok = malloc(sizeof(xmlRMutex))) == NULL)
+    tok = malloc(sizeof(xmlRMutex));
+    if (tok == NULL)
         return (NULL);
 #ifdef HAVE_POSIX_THREADS
     pthread_mutex_init(&tok->lock, NULL);
@@ -559,7 +561,7 @@ xmlCleanupParser(void) {
     xmlParserInnerInitialized = 0;
 }
 
-#if defined(HAVE_ATTRIBUTE_DESTRUCTOR) && \
+#if defined(HAVE_FUNC_ATTRIBUTE_DESTRUCTOR) && \
     !defined(LIBXML_THREAD_ALLOC_ENABLED) && \
     !defined(LIBXML_STATIC) && \
     !defined(_WIN32)

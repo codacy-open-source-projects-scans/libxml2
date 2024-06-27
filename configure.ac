@@ -49,7 +49,6 @@ AC_PROG_INSTALL
 AC_PROG_LN_S
 AC_PROG_MKDIR_P
 AC_PATH_PROG(TAR, tar, /bin/tar)
-AC_PATH_PROG(PERL, perl, /usr/bin/perl)
 AC_PATH_PROG(WGET, wget, /usr/bin/wget)
 AC_PATH_PROG(XSLTPROC, xsltproc, /usr/bin/xsltproc)
 PKG_PROG_PKG_CONFIG
@@ -72,7 +71,7 @@ AC_ARG_WITH(debug,
 AC_ARG_WITH(history,
 [  --with-history          history support for xmllint shell (off)])
 AC_ARG_WITH(readline,
-[  --with-readline[[=DIR]]   use readline in DIR for shell (on)])
+[  --with-readline[[=DIR]]   use readline in DIR for shell (off)])
 AC_ARG_WITH(html,
 [  --with-html             HTML parser (on)])
 AC_ARG_WITH(http,
@@ -206,6 +205,15 @@ if test "$with_xptr" = "yes"; then
     fi
     with_xpath=yes
 fi
+if test "$with_history" = "yes"; then
+    if test "$with_readline" = "no"; then
+        echo WARNING: --with-history overrides --without-readline
+        with_readline=yes
+    fi
+    if test "$with_readline" = ""; then
+        with_readline=yes
+    fi
+fi
 
 if test "$with_minimum" = "yes"; then
     dnl
@@ -267,25 +275,33 @@ else
     fi
 fi
 
+dnl
+dnl Extra flags
+dnl
+XML_LIBDIR='-L${libdir}'
+XML_INCLUDEDIR='-I${includedir}/libxml2'
+XML_CFLAGS=""
+XML_STATIC_CFLAGS=""
+XML_PC_CFLAGS_PRIVATE=""
+
 XML_PRIVATE_LIBS=
 XML_PRIVATE_CFLAGS=
 XML_PC_LIBS=
 XML_PC_REQUIRES=
 
+AX_GCC_FUNC_ATTRIBUTE([destructor])
+
 dnl
 dnl Checks for header files.
 dnl
 AC_CHECK_HEADERS([stdint.h])
-AC_CHECK_HEADERS([fcntl.h unistd.h sys/stat.h])
-AC_CHECK_HEADERS([sys/mman.h])
-AC_CHECK_HEADERS([sys/time.h sys/timeb.h])
-AC_CHECK_HEADERS([sys/random.h])
+AC_CHECK_HEADERS([sys/mman.h sys/random.h])
 AC_CHECK_HEADERS([dl.h dlfcn.h])
 AC_CHECK_HEADERS([glob.h])
 AM_CONDITIONAL(WITH_GLOB, test "$ac_cv_header_glob_h" = "yes")
 
 dnl Checks for library functions.
-AC_CHECK_FUNCS([getentropy gettimeofday ftime stat mmap munmap])
+AC_CHECK_FUNCS([getentropy mmap munmap])
 
 AH_VERBATIM([HAVE_MUNMAP_AFTER],[/* mmap() is no good without munmap() */
 #if defined(HAVE_MMAP) && !defined(HAVE_MUNMAP)
@@ -318,72 +334,7 @@ if test "$with_http" = "yes"; then
             LIBS=$_libs
             ;;
     esac
-
-    dnl Determine what socket length (socklen_t) data type is
-    AC_MSG_CHECKING([for type of socket length (socklen_t)])
-    AC_TRY_COMPILE2([
-    #include <stddef.h>
-    #ifdef _WIN32
-      #include <ws2tcpip.h>
-    #else
-      #include <sys/socket.h>
-    #endif],[
-    (void)getsockopt (1, 1, 1, NULL, (socklen_t *)NULL)],[
-      AC_MSG_RESULT(socklen_t *)
-      XML_SOCKLEN_T=socklen_t],[
-      AC_TRY_COMPILE2([
-    #include <stddef.h>
-    #include <sys/socket.h>],[
-    (void)getsockopt (1, 1, 1, NULL, (size_t *)NULL)],[
-        AC_MSG_RESULT(size_t *)
-        XML_SOCKLEN_T=size_t],[
-        AC_TRY_COMPILE2([
-    #include <stddef.h>
-    #include <sys/socket.h>],[
-    (void)getsockopt (1, 1, 1, NULL, (int *)NULL)],[
-          AC_MSG_RESULT(int *)
-          XML_SOCKLEN_T=int],[
-          AC_MSG_WARN(could not determine)
-          XML_SOCKLEN_T="int"])])])
-    AC_DEFINE_UNQUOTED(XML_SOCKLEN_T, $XML_SOCKLEN_T, [Determine what socket length (socklen_t) data type is])
-
-    dnl
-    dnl Checking for availability of IPv6
-    dnl
-    AC_ARG_ENABLE(ipv6, [  --enable-ipv6[[=yes/no]]  enables compilation of IPv6 code [[default=yes]]],, enable_ipv6=yes)
-    if test "$with_minimum" = "yes"
-    then
-        enable_ipv6=no
-    fi
-    if test $enable_ipv6 = yes; then
-        AC_MSG_CHECKING([whether to enable IPv6])
-        AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
-            #ifdef _WIN32
-              #include <winsock2.h>
-            #else
-              #include <sys/socket.h>
-              #ifdef HAVE_NETDB_H
-                #include <netdb.h>
-              #endif
-            #endif
-            ]], [[
-            struct sockaddr_storage ss;
-            socket(AF_INET6, SOCK_STREAM, 0);
-            getaddrinfo(0, 0, 0, 0);
-            ]])], [
-            AC_DEFINE([SUPPORT_IP6], [], [Support for IPv6])
-            AC_MSG_RESULT([yes])], [
-            AC_MSG_RESULT([no])]
-        )
-    fi
 fi
-
-dnl
-dnl Extra flags
-dnl
-XML_LIBDIR='-L${libdir}'
-XML_INCLUDEDIR='-I${includedir}/libxml2'
-XML_CFLAGS=""
 
 dnl Thread-local storage
 if test "$with_tls" = "yes"; then
@@ -398,16 +349,6 @@ if test "$with_tls" = "yes"; then
         AC_DEFINE([XML_THREAD_LOCAL], [__declspec(thread)], [TLS specifier]) ], [
     ])])])
 fi
-
-dnl Checking whether __attribute__((destructor)) is accepted by the compiler
-AC_MSG_CHECKING([whether __attribute__((destructor)) is accepted])
-AC_TRY_COMPILE2([
-void __attribute__((destructor))
-f(void) {}], [], [
-  AC_MSG_RESULT(yes)
-  AC_DEFINE([HAVE_ATTRIBUTE_DESTRUCTOR], [1],[Define if __attribute__((destructor)) is accepted])
-  AC_DEFINE([ATTRIBUTE_DESTRUCTOR], [__attribute__((destructor))],[A form that will not confuse apibuild.py])],[
-  AC_MSG_RESULT(no)])
 
 dnl
 dnl Linker version scripts for symbol versioning
@@ -477,9 +418,13 @@ case ${host} in
         # work properly (without it, xmlexports.h would force the use of
         # DLL imports, which obviously aren't present in a static
         # library).
-        if test "x$enable_shared" = "xno"; then
-            XML_CFLAGS="$XML_CFLAGS -DLIBXML_STATIC"
-            AM_CFLAGS="$AM_CFLAGS -DLIBXML_STATIC"
+        XML_STATIC_CFLAGS="-DLIBXML_STATIC"
+        if test "x$enable_shared" = "xyes"; then
+            XML_PC_CFLAGS_PRIVATE="
+Cflags.private:"
+        else
+            XML_CFLAGS="$XML_STATIC_CFLAGS"
+            AM_CFLAGS="$AM_CFLAGS $XML_STATIC_CFLAGS"
         fi
         ;;
 esac
@@ -720,13 +665,13 @@ if test "$with_modules" != "no" ; then
         AC_SEARCH_LIBS([dlopen], [dl], [
             WITH_MODULES=1
             if test "$ac_cv_search_dlopen" != "none required"; then
-                MODULE_PLATFORM_LIBS=$ac_cv_search_dlopen
+                MODULE_LIBS=$ac_cv_search_dlopen
             fi
             AC_DEFINE([HAVE_DLOPEN], [], [Have dlopen based dso])], [
             AC_SEARCH_LIBS([shl_load], [dld], [
                 WITH_MODULES=1
                 if test "$ac_cv_search_shl_load" != "none required"; then
-                    MODULE_PLATFORM_LIBS=$ac_cv_search_shl_load
+                    MODULE_LIBS=$ac_cv_search_shl_load
                 fi
                 AC_DEFINE([HAVE_SHLLOAD], [], [Have shl_load based dso])])])
         LIBS=$_libs
@@ -738,7 +683,6 @@ if test "$with_modules" != "no" ; then
 fi
 
 AC_SUBST(WITH_MODULES)
-AC_SUBST(MODULE_PLATFORM_LIBS)
 AC_SUBST(MODULE_EXTENSION)
 AM_CONDITIONAL(WITH_MODULES_SOURCES, test "$WITH_MODULES" = "1")
 
@@ -785,48 +729,80 @@ AC_SUBST(WITH_THREADS)
 AC_SUBST(WITH_THREAD_ALLOC)
 
 dnl
-dnl xmllint shell
+dnl Checks for readline and history libraries.
 dnl
-if test "$with_readline" != "no"; then
-    _cppflags=$CPPFLAGS
-    _libs=$LIBS
+if test "$with_readline" != "no" && test "$with_readline" != ""; then
+    WITH_READLINE=0
+    WITH_HISTORY=0
 
-    dnl check for terminal library. this is a very cool solution
-    dnl from octave's configure.in
-    unset tcap
-    for termlib in ncurses curses termcap terminfo termlib; do
-	AC_CHECK_LIB(${termlib}, tputs, [tcap="-l$termlib"])
-	test -n "$tcap" && break
-    done
-
-    if test "$with_readline" != "" && test "$with_readline" != "yes"; then
+    if test "$with_readline" != "yes"; then
         RDL_DIR=$with_readline
-        CPPFLAGS="${CPPFLAGS} -I$RDL_DIR/include"
-        LIBS="${LIBS} -L$RDL_DIR/lib"
     fi
-    AC_CHECK_HEADER(readline/readline.h,
-	AC_CHECK_LIB(readline, readline,[
-	    RDL_LIBS="-lreadline $RDL_LIBS $tcap"
-            if test "x$RDL_DIR" != "x"; then
-                RDL_CFLAGS="-I$RDL_DIR/include"
-                RDL_LIBS="-L$RDL_DIR/lib $RDL_LIBS"
-            fi
-	    AC_DEFINE([HAVE_LIBREADLINE], [], [Define if readline library is there (-lreadline)])], , $tcap))
+
+    if test "$RDL_DIR" = ""; then
+        PKG_CHECK_MODULES([RDL], [readline], [ WITH_READLINE=1 ], [:])
+    fi
+
+    if test "$WITH_READLINE" = "0"; then
+        _cppflags=$CPPFLAGS
+        _libs=$LIBS
+
+        if test "$RDL_DIR" != ""; then
+            CPPFLAGS="${CPPFLAGS} -I$RDL_DIR/include"
+            LIBS="${LIBS} -L$RDL_DIR/lib"
+        fi
+        AC_CHECK_HEADER(readline/readline.h,
+            AC_CHECK_LIB(readline, readline, [
+                WITH_READLINE=1
+                RDL_LIBS="-lreadline"
+            ], [
+                AC_MSG_ERROR([libreadline not found])
+            ]))
+
+        CPPFLAGS=$_cppflags
+        LIBS=$_libs
+    fi
+
+    AC_DEFINE([HAVE_LIBREADLINE], [],
+              [Define if readline library is available])
 
     if test "$with_history" = "yes"; then
-        echo Enabling xmllint shell history
-        AC_CHECK_HEADER(readline/history.h,
-            AC_CHECK_LIB(history, append_history,[
-                RDL_LIBS="-lhistory"
-                if test "x${RDL_DIR}" != "x"; then
-                    RDL_CFLAGS="-I$RDL_DIR/include"
-                    RDL_LIBS="-L$RDL_DIR/lib $RDL_LIBS"
-                fi
-                AC_DEFINE([HAVE_LIBHISTORY], [], [Define if history library is there (-lhistory)])]))
+        if test "$RDL_DIR" = ""; then
+            PKG_CHECK_MODULES([HISTORY], [history], [
+                WITH_HISTORY=1
+                RDL_CFLAGS="$HISTORY_CFLAGS $RDL_CFLAGS"
+                RDL_LIBS="$HISTORY_LIBS $RDL_LIBS"
+            ], [:])
+        fi
+
+        if test "$WITH_HISTORY" = "0"; then
+            _cppflags=$CPPFLAGS
+            _libs=$LIBS
+
+            if test "$RDL_DIR" != ""; then
+                CPPFLAGS="${CPPFLAGS} -I$RDL_DIR/include"
+                LIBS="${LIBS} -L$RDL_DIR/lib"
+            fi
+            AC_CHECK_HEADER(readline/history.h,
+                AC_CHECK_LIB(history, append_history, [
+                    WITH_HISTORY=1
+                    RDL_LIBS="-lhistory $RDL_LIBS"
+                ], [
+                    AC_MSG_ERROR([libhistory not found])
+                ]))
+
+            CPPFLAGS=$_cppflags
+            LIBS=$_libs
+        fi
+
+        AC_DEFINE([HAVE_LIBHISTORY], [],
+                  [Define if history library is available])
     fi
 
-    CPPFLAGS=$_cppflags
-    LIBS=$_libs
+    if test "$RDL_DIR" != ""; then
+        RDL_CFLAGS="-I$RDL_DIR/include"
+        RDL_LIBS="-L$RDL_DIR/lib $RDL_LIBS"
+    fi
 fi
 AC_SUBST(RDL_CFLAGS)
 AC_SUBST(RDL_LIBS)
@@ -1060,8 +1036,7 @@ case "$host" in
 esac
 
 XML_LIBS="-lxml2"
-XML_LIBTOOLLIBS="libxml2.la"
-NON_PC_LIBS="${THREAD_LIBS} ${ICONV_LIBS} ${LIBM} ${NET_LIBS} ${CRYPTO_LIBS}"
+NON_PC_LIBS="${THREAD_LIBS} ${ICONV_LIBS} ${LIBM} ${NET_LIBS} ${CRYPTO_LIBS} ${MODULE_LIBS}"
 XML_PC_LIBS="${XML_PC_LIBS} ${NON_PC_LIBS}"
 XML_PRIVATE_LIBS="${XML_PRIVATE_LIBS} ${NON_PC_LIBS}"
 XML_PRIVATE_CFLAGS="${XML_PRIVATE_CFLAGS} ${ICONV_CFLAGS}"
@@ -1082,9 +1057,11 @@ fi
 AC_SUBST(XML_PRIVATE_LIBS_NO_SHARED)
 AC_SUBST(XML_PC_PRIVATE)
 AC_SUBST(XML_PC_LIBS_PRIVATE)
+AC_SUBST(XML_PC_CFLAGS_PRIVATE)
 AM_SUBST_NOTMAKE(XML_PRIVATE_LIBS_NO_SHARED)
 AM_SUBST_NOTMAKE(XML_PC_PRIVATE)
 AM_SUBST_NOTMAKE(XML_PC_LIBS_PRIVATE)
+AM_SUBST_NOTMAKE(XML_PC_CFLAGS_PRIVATE)
 
 AC_SUBST(XML_PC_LIBS)
 AC_SUBST(XML_PC_REQUIRES)
@@ -1094,20 +1071,16 @@ AM_SUBST_NOTMAKE(XML_PC_REQUIRES)
 AC_SUBST(AM_CFLAGS)
 AC_SUBST(AM_LDFLAGS)
 AC_SUBST(XML_CFLAGS)
+AC_SUBST(XML_STATIC_CFLAGS)
 
 AC_SUBST(XML_LIBDIR)
 AC_SUBST(XML_LIBS)
 AC_SUBST(XML_PRIVATE_LIBS)
 AC_SUBST(XML_PRIVATE_CFLAGS)
-AC_SUBST(XML_LIBTOOLLIBS)
 AC_SUBST(XML_INCLUDEDIR)
 
-dnl for the spec file
-RELDATE=`date +'%a %b %e %Y'`
-AC_SUBST(RELDATE)
-
 # keep on one line for cygwin c.f. #130896
-AC_CONFIG_FILES([Makefile include/Makefile include/libxml/Makefile include/private/Makefile doc/Makefile doc/devhelp/Makefile example/Makefile fuzz/Makefile python/Makefile python/tests/Makefile xstc/Makefile include/libxml/xmlversion.h libxml-2.0.pc libxml-2.0-uninstalled.pc libxml2-config.cmake])
+AC_CONFIG_FILES([Makefile include/Makefile include/libxml/Makefile include/private/Makefile doc/Makefile doc/devhelp/Makefile example/Makefile fuzz/Makefile python/Makefile python/tests/Makefile xstc/Makefile include/libxml/xmlversion.h libxml-2.0.pc libxml2-config.cmake])
 AC_CONFIG_FILES([python/setup.py], [chmod +x python/setup.py])
 AC_CONFIG_FILES([xml2-config], [chmod +x xml2-config])
 AC_OUTPUT

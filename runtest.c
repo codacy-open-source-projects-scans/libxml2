@@ -16,15 +16,17 @@
 
 #include "libxml.h"
 #include <stdio.h>
-#ifdef HAVE_UNISTD_H
-#include <unistd.h>
-#elif defined (_WIN32)
-#include <io.h>
-#endif
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
+
 #include <fcntl.h>
+#include <sys/stat.h>
+
+#ifdef _WIN32
+  #include <io.h>
+#else
+  #include <unistd.h>
+#endif
 
 #include <libxml/parser.h>
 #include <libxml/parserInternals.h>
@@ -53,6 +55,10 @@
 #include <libxml/relaxng.h>
 #include <libxml/xmlschemas.h>
 #include <libxml/xmlschemastypes.h>
+#endif
+
+#ifdef LIBXML_SCHEMATRON_ENABLED
+#include <libxml/schematron.h>
 #endif
 
 #ifdef LIBXML_PATTERN_ENABLED
@@ -480,7 +486,8 @@ static int loadMem(const char *filename, const char **mem, int *size) {
     base = malloc(info.st_size + 1);
     if (base == NULL)
 	return(-1);
-    if ((fd = open(filename, RD_FLAGS)) < 0) {
+    fd = open(filename, RD_FLAGS);
+    if (fd  < 0) {
         free(base);
 	return(-1);
     }
@@ -3175,21 +3182,12 @@ uriPathTest(const char *filename ATTRIBUTE_UNUSED,
 static int
 schemasOneTest(const char *sch,
                const char *filename,
-               const char *result,
                const char *err,
 	       int options,
 	       xmlSchemaPtr schemas) {
     int ret = 0;
     int i;
-    char *temp;
     int parseErrorsSize = testErrorsSize;
-
-    temp = resultFilename(result, temp_directory, ".res");
-    if (temp == NULL) {
-        fprintf(stderr, "Out of memory\n");
-        fatalError();
-        return(-1);
-    }
 
     /*
      * Test both memory and streaming validation.
@@ -3197,7 +3195,6 @@ schemasOneTest(const char *sch,
     for (i = 0; i < 2; i++) {
         xmlSchemaValidCtxtPtr ctxt;
         int validResult = 0;
-        FILE *schemasOutput;
 
         testErrorsSize = parseErrorsSize;
         testErrors[parseErrorsSize] = 0;
@@ -3208,13 +3205,6 @@ schemasOneTest(const char *sch,
         ctxt = xmlSchemaNewValidCtxt(schemas);
         xmlSchemaSetValidStructuredErrors(ctxt, testStructuredErrorHandler,
                                           NULL);
-
-        schemasOutput = fopen(temp, "wb");
-        if (schemasOutput == NULL) {
-            fprintf(stderr, "failed to open output file %s\n", temp);
-            free(temp);
-            return(-1);
-        }
 
         if (i == 0) {
             xmlDocPtr doc;
@@ -3231,20 +3221,12 @@ schemasOneTest(const char *sch,
         }
 
         if (validResult == 0) {
-            fprintf(schemasOutput, "%s validates\n", filename);
+            testErrorHandler(NULL, "%s validates\n", filename);
         } else if (validResult > 0) {
-            fprintf(schemasOutput, "%s fails to validate\n", filename);
+            testErrorHandler(NULL, "%s fails to validate\n", filename);
         } else {
-            fprintf(schemasOutput, "%s validation generated an internal error\n",
-                   filename);
-        }
-        fclose(schemasOutput);
-
-        if (result) {
-            if (compareFiles(temp, result)) {
-                fprintf(stderr, "Result for %s on %s failed\n", filename, sch);
-                ret = 1;
-            }
+            testErrorHandler(NULL, "%s validation generated an internal "
+                             "error\n", filename);
         }
 
         xmlSchemaFreeValidCtxt(ctxt);
@@ -3254,11 +3236,8 @@ done:
             fprintf(stderr, "Error for %s on %s failed\n", filename, sch);
             ret = 1;
         }
-
-        unlink(temp);
     }
 
-    free(temp);
     return(ret);
 }
 /**
@@ -3286,7 +3265,6 @@ schemasTest(const char *filename,
     int parseErrorsSize;
     char pattern[500];
     char prefix[500];
-    char result[500];
     char err[500];
     glob_t globbuf;
     size_t i;
@@ -3336,10 +3314,6 @@ schemasTest(const char *filename,
 	len = strlen(base2);
 	if ((len > 6) && (base2[len - 6] == '_')) {
 	    count = base2[len - 5];
-	    ret = snprintf(result, 499, "result/schemas/%s_%c",
-		     prefix, count);
-            if (ret >= 499)
-	        result[499] = 0;
 	    ret = snprintf(err, 499, "result/schemas/%s_%c.err",
 		     prefix, count);
             if (ret >= 499)
@@ -3350,8 +3324,7 @@ schemasTest(const char *filename,
 	}
 
         nb_tests++;
-        ret = schemasOneTest(filename, instance, result, err,
-                             options, schemas);
+        ret = schemasOneTest(filename, instance, err, options, schemas);
         if (ret != 0)
             res = ret;
     }
@@ -3369,31 +3342,15 @@ schemasTest(const char *filename,
 static int
 rngOneTest(const char *sch,
                const char *filename,
-               const char *result,
 	       int options,
 	       xmlRelaxNGPtr schemas) {
     xmlDocPtr doc;
     xmlRelaxNGValidCtxtPtr ctxt;
     int ret = 0;
-    char *temp;
-    FILE *schemasOutput;
 
     doc = xmlReadFile(filename, NULL, options);
     if (doc == NULL) {
         fprintf(stderr, "failed to parse instance %s for %s\n", filename, sch);
-	return(-1);
-    }
-
-    temp = resultFilename(result, temp_directory, ".res");
-    if (temp == NULL) {
-        fprintf(stderr, "Out of memory\n");
-        fatalError();
-    }
-    schemasOutput = fopen(temp, "wb");
-    if (schemasOutput == NULL) {
-	fprintf(stderr, "failed to open output file %s\n", temp);
-	xmlFreeDoc(doc);
-        free(temp);
 	return(-1);
     }
 
@@ -3408,22 +3365,10 @@ rngOneTest(const char *sch,
 	testErrorHandler(NULL, "%s validation generated an internal error\n",
 	       filename);
     }
-    fclose(schemasOutput);
-    ret = 0;
-    if (result) {
-	if (compareFiles(temp, result)) {
-	    fprintf(stderr, "Result for %s on %s failed\n", filename, sch);
-	    ret = 1;
-	}
-    }
-    if (temp != NULL) {
-        unlink(temp);
-        free(temp);
-    }
 
     xmlRelaxNGFreeValidCtxt(ctxt);
     xmlFreeDoc(doc);
-    return(ret);
+    return(0);
 }
 /**
  * rngTest:
@@ -3449,7 +3394,6 @@ rngTest(const char *filename,
     int parseErrorsSize;
     char pattern[500];
     char prefix[500];
-    char result[500];
     char err[500];
     glob_t globbuf;
     size_t i;
@@ -3491,10 +3435,6 @@ rngTest(const char *filename,
 	len = strlen(base2);
 	if ((len > 6) && (base2[len - 6] == '_')) {
 	    count = base2[len - 5];
-	    res = snprintf(result, 499, "result/relaxng/%s_%c",
-		     prefix, count);
-            if (res >= 499)
-	        result[499] = 0;
 	    res = snprintf(err, 499, "result/relaxng/%s_%c.err",
 		     prefix, count);
             if (res >= 499)
@@ -3505,7 +3445,7 @@ rngTest(const char *filename,
 	}
 	if (schemas != NULL) {
 	    nb_tests++;
-	    res = rngOneTest(filename, instance, result, options, schemas);
+	    res = rngOneTest(filename, instance, options, schemas);
 	    if (res != 0)
 		ret = res;
 	}
@@ -3622,6 +3562,131 @@ rngStreamTest(const char *filename,
 #endif /* READER */
 
 #endif
+
+/************************************************************************
+ *									*
+ *			Schematron tests				*
+ *									*
+ ************************************************************************/
+
+#ifdef LIBXML_SCHEMATRON_ENABLED
+static int
+schematronOneTest(const char *sch, const char *filename, int options,
+                  xmlSchematronPtr schematron) {
+    xmlDocPtr doc;
+    xmlSchematronValidCtxtPtr ctxt;
+    int ret;
+
+    doc = xmlReadFile(filename, NULL, options);
+    if (doc == NULL) {
+        fprintf(stderr, "failed to parse instance %s for %s\n", filename, sch);
+	return(-1);
+    }
+
+    ctxt = xmlSchematronNewValidCtxt(schematron, XML_SCHEMATRON_OUT_ERROR);
+    xmlSchematronSetValidStructuredErrors(ctxt, testStructuredErrorHandler,
+                                          NULL);
+    ret = xmlSchematronValidateDoc(ctxt, doc);
+    if (ret == 0) {
+	testErrorHandler(NULL, "%s validates\n", filename);
+    } else if (ret > 0) {
+	testErrorHandler(NULL, "%s fails to validate\n", filename);
+    } else {
+	testErrorHandler(NULL, "%s validation generated an internal error\n",
+	       filename);
+    }
+
+    xmlSchematronFreeValidCtxt(ctxt);
+    xmlFreeDoc(doc);
+    return(0);
+}
+
+/**
+ * schematronTest:
+ * @filename: the schemas file
+ * @result: the file with expected result
+ * @err: the file with error messages
+ *
+ * Returns 0 in case of success, an error code otherwise
+ */
+static int
+schematronTest(const char *filename,
+               const char *resul ATTRIBUTE_UNUSED,
+               const char *errr ATTRIBUTE_UNUSED,
+               int options) {
+    const char *base = baseFilename(filename);
+    const char *base2;
+    const char *instance;
+    xmlSchematronParserCtxtPtr pctxt;
+    xmlSchematronPtr schematron;
+    int res = 0, len, ret = 0;
+    int parseErrorsSize;
+    char pattern[500];
+    char prefix[500];
+    char err[500];
+    glob_t globbuf;
+    size_t i;
+    char count = 0;
+
+    pctxt = xmlSchematronNewParserCtxt(filename);
+    schematron = xmlSchematronParse(pctxt);
+    xmlSchematronFreeParserCtxt(pctxt);
+    if (schematron == NULL)
+        testErrorHandler(NULL, "Schematron schema %s failed to compile\n",
+                         filename);
+    parseErrorsSize = testErrorsSize;
+
+    /*
+     * most of the mess is about the output filenames generated by the Makefile
+     */
+    len = strlen(base);
+    if ((len > 499) || (len < 5)) {
+        xmlSchematronFree(schematron);
+	return(-1);
+    }
+    len -= 4; /* remove trailing .sct */
+    memcpy(prefix, base, len);
+    prefix[len] = 0;
+
+    if (snprintf(pattern, 499, "./test/schematron/%s_?.xml", prefix) >= 499)
+        pattern[499] = 0;
+
+    globbuf.gl_offs = 0;
+    glob(pattern, GLOB_DOOFFS, NULL, &globbuf);
+    for (i = 0;i < globbuf.gl_pathc;i++) {
+        testErrorsSize = parseErrorsSize;
+        testErrors[parseErrorsSize] = 0;
+        instance = globbuf.gl_pathv[i];
+	base2 = baseFilename(instance);
+	len = strlen(base2);
+	if ((len > 6) && (base2[len - 6] == '_')) {
+	    count = base2[len - 5];
+	    res = snprintf(err, 499, "result/schematron/%s_%c.err",
+		     prefix, count);
+            if (res >= 499)
+	        err[499] = 0;
+	} else {
+	    fprintf(stderr, "don't know how to process %s\n", instance);
+	    continue;
+	}
+	if (schematron != NULL) {
+	    nb_tests++;
+	    res = schematronOneTest(filename, instance, options, schematron);
+	    if (res != 0)
+		ret = res;
+	}
+        if (compareFileMem(err, testErrors, testErrorsSize)) {
+            fprintf(stderr, "Error for %s on %s failed\n", instance,
+                    filename);
+            ret = 1;
+        }
+    }
+    globfree(&globbuf);
+    xmlSchematronFree(schematron);
+
+    return(ret);
+}
+#endif /* LIBXML_SCHEMATRON_ENABLED */
 
 #ifdef LIBXML_PATTERN_ENABLED
 #ifdef LIBXML_READER_ENABLED
@@ -4865,6 +4930,11 @@ testDesc testDescriptions[] = {
       rngStreamTest, "./test/relaxng/*.rng", NULL, NULL, NULL,
       XML_PARSE_DTDATTR | XML_PARSE_NOENT },
 #endif
+#endif
+#if defined(LIBXML_SCHEMATRON_ENABLED)
+    { "Schematron regression tests" ,
+      schematronTest, "./test/schematron/*.sct", NULL, NULL, NULL,
+      0 },
 #endif
 #ifdef LIBXML_PATTERN_ENABLED
 #ifdef LIBXML_READER_ENABLED
