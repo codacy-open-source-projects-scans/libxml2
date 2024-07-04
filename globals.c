@@ -241,17 +241,13 @@ static int xmlDefaultBufferSizeThrDef = BASE_BUFFER_SIZE;
 /**
  * oldXMLWDcompatibility:
  *
- * Global setting, DEPRECATED.
+ * DEPRECATED, always 0.
  */
 const int oldXMLWDcompatibility = 0; /* DEPRECATED */
 /**
  * xmlParserDebugEntities:
  *
- * DEPRECATED: Don't use
- *
- * Global setting, asking the parser to print out debugging information.
- * while handling entities.
- * Disabled by default
+ * DEPRECATED, always 0.
  */
 const int xmlParserDebugEntities = 0;
 /**
@@ -369,12 +365,16 @@ static xmlOutputBufferCreateFilenameFunc xmlOutputBufferCreateFilenameValueThrDe
 /**
  * xmlGenericError:
  *
+ * DEPRECATED: Use xmlCtxtSetErrorHandler.
+ *
  * Global setting: function used for generic error callbacks
  */
 xmlGenericErrorFunc xmlGenericError = xmlGenericErrorDefaultFunc;
 static xmlGenericErrorFunc xmlGenericErrorThrDef = xmlGenericErrorDefaultFunc;
 /**
  * xmlStructuredError:
+ *
+ * DEPRECATED: Use xmlCtxtSetErrorHandler.
  *
  * Global setting: function used for structured error callbacks
  */
@@ -383,12 +383,16 @@ static xmlStructuredErrorFunc xmlStructuredErrorThrDef = NULL;
 /**
  * xmlGenericErrorContext:
  *
+ * DEPRECATED: Use xmlCtxtSetErrorHandler.
+ *
  * Global setting passed to generic error callbacks
  */
 void *xmlGenericErrorContext = NULL;
 static void *xmlGenericErrorContextThrDef = NULL;
 /**
  * xmlStructuredErrorContext:
+ *
+ * DEPRECATED: Use xmlCtxtSetErrorHandler.
  *
  * Global setting passed to structured error callbacks
  */
@@ -403,6 +407,8 @@ xmlError xmlLastError;
 /**
  * xmlIndentTreeOutput:
  *
+ * DEPRECATED: Use XML_SAVE_INDENT and XML_SAVE_NO_INDENT.
+ *
  * Global setting, asking the serializer to indent the output tree by default
  * Enabled by default
  */
@@ -412,13 +418,18 @@ static int xmlIndentTreeOutputThrDef = 1;
 /**
  * xmlTreeIndentString:
  *
- * The string used to do one-level indent. By default is equal to "  " (two spaces)
+ * DEPRECATED: Use xmlSaveSetIndentString.
+ *
+ * The string used to do one-level indent. By default is equal to
+ * "  " (two spaces)
  */
 const char *xmlTreeIndentString = "  ";
 static const char *xmlTreeIndentStringThrDef = "  ";
 
 /**
  * xmlSaveNoEmptyTags:
+ *
+ * DEPRECATED: Use XML_SAVE_EMPTY and XML_SAVE_NO_EMPTY.
  *
  * Global setting, asking the serializer to not output empty tags
  * as <empty/> but <empty></empty>. those two forms are indistinguishable
@@ -1133,7 +1144,7 @@ xmlThrDefRegisterNodeDefault(xmlRegisterNodeFunc func)
     xmlMutexLock(&xmlThrDefMutex);
     old = xmlRegisterNodeDefaultValueThrDef;
 
-    __xmlRegisterCallbacks = 1;
+    xmlRegisterCallbacks = 1;
     xmlRegisterNodeDefaultValueThrDef = func;
     xmlMutexUnlock(&xmlThrDefMutex);
 
@@ -1148,7 +1159,7 @@ xmlThrDefDeregisterNodeDefault(xmlDeregisterNodeFunc func)
     xmlMutexLock(&xmlThrDefMutex);
     old = xmlDeregisterNodeDefaultValueThrDef;
 
-    __xmlRegisterCallbacks = 1;
+    xmlRegisterCallbacks = 1;
     xmlDeregisterNodeDefaultValueThrDef = func;
     xmlMutexUnlock(&xmlThrDefMutex);
 

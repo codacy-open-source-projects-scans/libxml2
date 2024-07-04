@@ -14,6 +14,21 @@
 #include <string.h>
 
 static int
+testNewDocNode(void) {
+    xmlNodePtr node;
+    int err = 0;
+
+    node = xmlNewDocNode(NULL, NULL, BAD_CAST "c", BAD_CAST "");
+    if (node->children != NULL) {
+        fprintf(stderr, "empty node has children\n");
+        err = 1;
+    }
+    xmlFreeNode(node);
+
+    return err;
+}
+
+static int
 testStandaloneWithEncoding(void) {
     xmlDocPtr doc;
     const char *str =
@@ -50,7 +65,8 @@ testUnsupportedEncoding(void) {
     xmlFreeDoc(doc);
 
     error = xmlGetLastError();
-    if (error->code != XML_ERR_UNSUPPORTED_ENCODING ||
+    if (error == NULL ||
+        error->code != XML_ERR_UNSUPPORTED_ENCODING ||
         error->level != XML_ERR_WARNING ||
         strcmp(error->message, "Unsupported encoding: #unsupported\n") != 0)
     {
@@ -165,8 +181,33 @@ testHugeEncodedChunk(void) {
 
     return err;
 }
+#endif
 
 #ifdef LIBXML_HTML_ENABLED
+static int
+testHtmlIds(void) {
+    const char *htmlContent =
+        "<html><body><div id='myId'>Hello, World!</div></body></html>";
+    htmlDocPtr doc;
+    xmlAttrPtr node;
+
+    doc = htmlReadDoc(BAD_CAST htmlContent, NULL, NULL, 0);
+    if (doc == NULL) {
+        fprintf(stderr, "could not parse HTML content\n");
+        return 1;
+    }
+
+    node = xmlGetID(doc, BAD_CAST "myId");
+    if (node == NULL) {
+        fprintf(stderr, "xmlGetID doesn't work on HTML\n");
+        return 1;
+    }
+
+    xmlFreeDoc(doc);
+    return 0;
+}
+
+#ifdef LIBXML_PUSH_ENABLED
 static int
 testHtmlPushWithEncoding(void) {
     htmlParserCtxtPtr ctxt;
@@ -517,10 +558,95 @@ testBuildRelativeUri(void) {
     return err;
 }
 
+static int charEncConvImplError;
+
+static int
+rot13Convert(unsigned char *out, int *outlen,
+             const unsigned char *in, int *inlen, void *vctxt) {
+    int *ctxt = vctxt;
+    int inSize = *inlen;
+    int outSize = *outlen;
+    int rot, i;
+
+    rot = *ctxt;
+
+    for (i = 0; i < inSize && i < outSize; i++) {
+        int c = in[i];
+
+        if (c >= 'A' && c <= 'Z')
+            c = 'A' + (c - 'A' + rot) % 26;
+        else if (c >= 'a' && c <= 'z')
+            c = 'a' + (c - 'a' + rot) % 26;
+
+        out[i] = c;
+    }
+
+    *inlen = i;
+    *outlen = i;
+
+    return XML_ENC_ERR_SUCCESS;
+}
+
+static void
+rot13ConvCtxtDtor(void *vctxt) {
+    xmlFree(vctxt);
+}
+
+static int
+rot13ConvImpl(void *vctxt ATTRIBUTE_UNUSED, const char *name,
+              xmlCharEncConverter *conv) {
+    int *inputCtxt;
+
+    if (strcmp(name, "rot13") != 0) {
+        fprintf(stderr, "rot13ConvImpl received wrong name\n");
+        charEncConvImplError = 1;
+
+        return XML_ERR_UNSUPPORTED_ENCODING;
+    }
+
+    conv->input = rot13Convert;
+    conv->output = rot13Convert;
+    conv->ctxtDtor = rot13ConvCtxtDtor;
+    
+    inputCtxt = xmlMalloc(sizeof(*inputCtxt));
+    *inputCtxt = 13;
+    conv->inputCtxt = inputCtxt;
+
+    return XML_ERR_OK;
+}
+
+static int
+testCharEncConvImpl(void) {
+    xmlParserCtxtPtr ctxt;
+    xmlDocPtr doc;
+    xmlNodePtr root;
+    int err = 0;
+
+    ctxt = xmlNewParserCtxt();
+    xmlCtxtSetCharEncConvImpl(ctxt, rot13ConvImpl, NULL);
+    charEncConvImplError = 0;
+    doc = xmlCtxtReadDoc(ctxt, BAD_CAST "<?kzy irefvba='1.0'?><qbp/>", NULL,
+                         "rot13", 0);
+    if (charEncConvImplError)
+        err = 1;
+    xmlFreeParserCtxt(ctxt);
+
+    root = xmlDocGetRootElement(doc);
+    if (root == NULL || strcmp((char *) root->name, "doc") != 0) {
+        fprintf(stderr, "testCharEncConvImpl failed\n");
+        err = 1;
+    }
+
+    xmlFreeDoc(doc);
+
+    return err;
+}
+
 int
 main(void) {
     int err = 0;
 
+    err |= testNewDocNode();
     err |= testStandaloneWithEncoding();
     err |= testUnsupportedEncoding();
     err |= testNodeGetContent();
@@ -530,7 +656,10 @@ main(void) {
 #ifdef LIBXML_PUSH_ENABLED
     err |= testHugePush();
     err |= testHugeEncodedChunk();
+#endif
 #ifdef LIBXML_HTML_ENABLED
+    err |= testHtmlIds();
+#ifdef LIBXML_PUSH_ENABLED
     err |= testHtmlPushWithEncoding();
 #endif
 #endif
@@ -545,6 +674,7 @@ main(void) {
     err |= testWriterClose();
 #endif
     err |= testBuildRelativeUri();
+    err |= testCharEncConvImpl();
 
     return err;
 }

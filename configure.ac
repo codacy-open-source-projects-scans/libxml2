@@ -1,22 +1,25 @@
 dnl Process this file with autoconf to produce a configure script.
 AC_PREREQ([2.63])
 
-m4_define([MAJOR_VERSION], 2)
-m4_define([MINOR_VERSION], 14)
-m4_define([MICRO_VERSION], 0)
+m4_define([version_macro], m4_normalize(m4_include([VERSION])))
 
-AC_INIT([libxml2],[MAJOR_VERSION.MINOR_VERSION.MICRO_VERSION])
+AC_INIT([libxml2],[version_macro])
 AC_CONFIG_SRCDIR([entities.c])
 AC_CONFIG_HEADERS([config.h])
 AC_CONFIG_MACRO_DIR([m4])
 AC_CANONICAL_HOST
 
-LIBXML_MAJOR_VERSION=MAJOR_VERSION
-LIBXML_MINOR_VERSION=MINOR_VERSION
-LIBXML_MICRO_VERSION=MICRO_VERSION
+LIBXML_VERSION=version_macro
+LIBXML_MAJOR_VERSION=`echo $LIBXML_VERSION | cut -d . -f 1`
+LIBXML_MINOR_VERSION=`echo $LIBXML_VERSION | cut -d . -f 2`
+LIBXML_MICRO_VERSION=`echo $LIBXML_VERSION | cut -d . -f 3`
 LIBXML_MICRO_VERSION_SUFFIX=
-LIBXML_VERSION=$LIBXML_MAJOR_VERSION.$LIBXML_MINOR_VERSION.$LIBXML_MICRO_VERSION$LIBXML_MICRO_VERSION_SUFFIX
-LIBXML_VERSION_INFO=`expr $LIBXML_MAJOR_VERSION + $LIBXML_MINOR_VERSION`:$LIBXML_MICRO_VERSION:$LIBXML_MINOR_VERSION
+
+# The oldest minor version we are compatible with.
+LIBXML_MINOR_COMPAT=0
+LIBXML_CURRENT=`expr $LIBXML_MAJOR_VERSION + $LIBXML_MINOR_VERSION`
+LIBXML_AGE=`expr $LIBXML_MINOR_VERSION - $LIBXML_MINOR_COMPAT`
+LIBXML_VERSION_INFO=$LIBXML_CURRENT:$LIBXML_MICRO_VERSION:$LIBXML_AGE
 
 LIBXML_VERSION_NUMBER=`expr $LIBXML_MAJOR_VERSION \* 10000 + $LIBXML_MINOR_VERSION \* 100 + $LIBXML_MICRO_VERSION`
 
@@ -334,6 +337,9 @@ if test "$with_http" = "yes"; then
             LIBS=$_libs
             ;;
     esac
+
+    XML_PRIVATE_LIBS="${XML_PRIVATE_LIBS} ${NET_LIBS}"
+    XML_PC_LIBS="${XML_PC_LIBS} ${NET_LIBS}"
 fi
 
 dnl Thread-local storage
@@ -680,6 +686,9 @@ if test "$with_modules" != "no" ; then
     if test "$WITH_MODULES" = "0"; then
         AC_MSG_ERROR([dlopen or equivalent not found])
     fi
+
+    XML_PRIVATE_LIBS="${XML_PRIVATE_LIBS} ${MODULE_LIBS}"
+    XML_PC_LIBS="${XML_PC_LIBS} ${MODULE_LIBS}"
 fi
 
 AC_SUBST(WITH_MODULES)
@@ -719,6 +728,9 @@ else
     if test "$WITH_THREADS" = "0"; then
         AC_MSG_ERROR([libpthread not found])
     fi
+
+    XML_PRIVATE_LIBS="${XML_PRIVATE_LIBS} ${THREAD_LIBS}"
+    XML_PC_LIBS="${XML_PC_LIBS} ${THREAD_LIBS}"
 fi
 if test "$with_thread_alloc" = "yes" && test "$WITH_THREADS" = "1" ; then
     WITH_THREAD_ALLOC=1
@@ -959,11 +971,13 @@ else
     if test "$WITH_ICONV" = "1" && test "$ICONV_DIR" != ""; then
         ICONV_CFLAGS="-I$ICONV_DIR/include"
         ICONV_LIBS="-L$ICONV_DIR/lib $ICONV_LIBS"
-	# Export this since our headers include iconv.h
-	XML_INCLUDEDIR="$XML_INCLUDEDIR -I$ICONV_DIR/include"
     fi
     CPPFLAGS=$_cppflags
     LIBS=$_libs
+
+    XML_PRIVATE_CFLAGS="${XML_PRIVATE_CFLAGS} ${ICONV_CFLAGS}"
+    XML_PRIVATE_LIBS="${XML_PRIVATE_LIBS} ${ICONV_LIBS}"
+    XML_PC_LIBS="${XML_PC_LIBS} ${ICONV_LIBS}"
 fi
 AC_SUBST(WITH_ICONV)
 AC_SUBST(ICONV_CFLAGS)
@@ -1032,14 +1046,14 @@ dnl
 case "$host" in
     *-*-mingw*)
         CRYPTO_LIBS="-lbcrypt"
+        XML_PRIVATE_LIBS="${XML_PRIVATE_LIBS} ${CRYPTO_LIBS}"
+        XML_PC_LIBS="${XML_PC_LIBS} ${CRYPTO_LIBS}"
         ;;
 esac
 
 XML_LIBS="-lxml2"
-NON_PC_LIBS="${THREAD_LIBS} ${ICONV_LIBS} ${LIBM} ${NET_LIBS} ${CRYPTO_LIBS} ${MODULE_LIBS}"
-XML_PC_LIBS="${XML_PC_LIBS} ${NON_PC_LIBS}"
-XML_PRIVATE_LIBS="${XML_PRIVATE_LIBS} ${NON_PC_LIBS}"
-XML_PRIVATE_CFLAGS="${XML_PRIVATE_CFLAGS} ${ICONV_CFLAGS}"
+XML_PC_LIBS="${XML_PC_LIBS} ${LIBM}"
+XML_PRIVATE_LIBS="${XML_PRIVATE_LIBS} ${LIBM}"
 
 dnl When static-only:
 dnl * Duplicate xml-config static --libs into --dynamic.

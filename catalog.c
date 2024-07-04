@@ -222,11 +222,11 @@ xmlCatalogErr(xmlCatalogEntryPtr catal, xmlNodePtr node, int error,
 {
     int res;
 
-    res = __xmlRaiseError(NULL, NULL, NULL, catal, node,
-                          XML_FROM_CATALOG, error, XML_ERR_ERROR, NULL, 0,
-                          (const char *) str1, (const char *) str2,
-                          (const char *) str3, 0, 0,
-                          msg, str1, str2, str3);
+    res = xmlRaiseError(NULL, NULL, NULL, catal, node,
+                        XML_FROM_CATALOG, error, XML_ERR_ERROR, NULL, 0,
+                        (const char *) str1, (const char *) str2,
+                        (const char *) str3, 0, 0,
+                        msg, str1, str2, str3);
     if (res < 0)
         xmlCatalogErrMemory();
 }
@@ -3409,6 +3409,9 @@ xmlCatalogConvert(void) {
 /**
  * xmlCatalogGetDefaults:
  *
+ * DEPRECATED: Use XML_PARSE_NO_SYS_CATALOG and
+ * XML_PARSE_NO_CATALOG_PI.
+ *
  * Used to get the user preference w.r.t. to what catalogs should
  * be accepted
  *
@@ -3422,6 +3425,9 @@ xmlCatalogGetDefaults(void) {
 /**
  * xmlCatalogSetDefaults:
  * @allow:  what catalogs should be accepted
+ *
+ * DEPRECATED: Use XML_PARSE_NO_SYS_CATALOG and
+ * XML_PARSE_NO_CATALOG_PI.
  *
  * Used to set the user preference w.r.t. to what catalogs should
  * be accepted
@@ -3454,6 +3460,8 @@ xmlCatalogSetDefaults(xmlCatalogAllow allow) {
 /**
  * xmlCatalogSetDefaultPrefer:
  * @prefer:  the default preference for delegation
+ *
+ * DEPRECATED: This setting is global and not thread-safe.
  *
  * Allows to set the preference between public and system for deletion
  * in XML Catalog resolution. C.f. section 4.1.1 of the spec

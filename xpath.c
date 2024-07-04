@@ -703,12 +703,12 @@ xmlXPathErr(xmlXPathParserContextPtr ctxt, int code)
         data = xmlGenericErrorContext;
     }
 
-    res = __xmlRaiseError(schannel, channel, data, NULL, node, XML_FROM_XPATH,
-                          code + XML_XPATH_EXPRESSION_OK - XPATH_EXPRESSION_OK,
-                          XML_ERR_ERROR, NULL, 0,
-                          (const char *) ctxt->base, NULL, NULL,
-                          ctxt->cur - ctxt->base, 0,
-                          "%s", xmlXPathErrorMessages[code]);
+    res = xmlRaiseError(schannel, channel, data, NULL, node, XML_FROM_XPATH,
+                        code + XML_XPATH_EXPRESSION_OK - XPATH_EXPRESSION_OK,
+                        XML_ERR_ERROR, NULL, 0,
+                        (const char *) ctxt->base, NULL, NULL,
+                        ctxt->cur - ctxt->base, 0,
+                        "%s", xmlXPathErrorMessages[code]);
     if (res < 0)
         xmlXPathPErrMemory(ctxt);
 }
@@ -2198,9 +2198,9 @@ xmlXPathPopExternal (xmlXPathParserContextPtr ctxt) {
 #define CUR_PTR ctxt->cur
 #define CUR_CHAR(l) xmlXPathCurrentChar(ctxt, &l)
 
-#define COPY_BUF(l,b,i,v)                                              \
-    if (l == 1) b[i++] = v;                                            \
-    else i += xmlCopyChar(l,&b[i],v)
+#define COPY_BUF(b, i, v)						\
+    if (v < 0x80) b[i++] = v;						\
+    else i += xmlCopyCharMultiByte(&b[i],v)
 
 #define NEXTL(l)  ctxt->cur += l
 
@@ -8772,7 +8772,7 @@ xmlXPathParseNameComplex(xmlXPathParserContextPtr ctxt, int qualified) {
 	    (c == '_') || ((qualified) && (c == ':')) ||
 	    (IS_COMBINING(c)) ||
 	    (IS_EXTENDER(c)))) {
-	COPY_BUF(l,buf,len,c);
+	COPY_BUF(buf,len,c);
 	NEXTL(l);
 	c = CUR_CHAR(l);
 	if (len >= XML_MAX_NAMELEN) {
@@ -8812,7 +8812,7 @@ xmlXPathParseNameComplex(xmlXPathParserContextPtr ctxt, int qualified) {
 		    }
                     buffer = tmp;
 		}
-		COPY_BUF(l,buffer,len,c);
+		COPY_BUF(buffer,len,c);
 		NEXTL(l);
 		c = CUR_CHAR(l);
 	    }

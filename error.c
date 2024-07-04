@@ -746,7 +746,7 @@ xmlVRaiseError(xmlStructuredErrorFunc schannel,
 }
 
 /**
- * __xmlRaiseError:
+ * xmlRaiseError:
  * @schannel: the structured callback channel
  * @channel: the old callback channel
  * @data: the callback data
@@ -772,12 +772,12 @@ xmlVRaiseError(xmlStructuredErrorFunc schannel,
  * Returns 0 on success, -1 if a memory allocation failed.
  */
 int
-__xmlRaiseError(xmlStructuredErrorFunc schannel,
-                xmlGenericErrorFunc channel, void *data, void *ctx,
-                xmlNode *node, int domain, int code, xmlErrorLevel level,
-                const char *file, int line, const char *str1,
-                const char *str2, const char *str3, int int1, int col,
-                const char *msg, ...)
+xmlRaiseError(xmlStructuredErrorFunc schannel,
+              xmlGenericErrorFunc channel, void *data, void *ctx,
+              xmlNode *node, int domain, int code, xmlErrorLevel level,
+              const char *file, int line, const char *str1,
+              const char *str2, const char *str3, int int1, int col,
+              const char *msg, ...)
 {
     va_list ap;
     int res;
@@ -965,46 +965,6 @@ xmlResetLastError(void)
     if (xmlLastError.code == XML_ERR_OK)
         return;
     xmlResetError(&xmlLastError);
-}
-
-/**
- * xmlCtxtGetLastError:
- * @ctx:  an XML parser context
- *
- * Get the last parsing error registered.
- *
- * Returns NULL if no error occurred or a pointer to the error
- */
-const xmlError *
-xmlCtxtGetLastError(void *ctx)
-{
-    xmlParserCtxtPtr ctxt = (xmlParserCtxtPtr) ctx;
-
-    if (ctxt == NULL)
-        return (NULL);
-    if (ctxt->lastError.code == XML_ERR_OK)
-        return (NULL);
-    return (&ctxt->lastError);
-}
-
-/**
- * xmlCtxtResetLastError:
- * @ctx:  an XML parser context
- *
- * Cleanup the last global error registered. For parsing error
- * this does not change the well-formedness result.
- */
-void
-xmlCtxtResetLastError(void *ctx)
-{
-    xmlParserCtxtPtr ctxt = (xmlParserCtxtPtr) ctx;
-
-    if (ctxt == NULL)
-        return;
-    ctxt->errNo = XML_ERR_OK;
-    if (ctxt->lastError.code == XML_ERR_OK)
-        return;
-    xmlResetError(&ctxt->lastError);
 }
 
 /**

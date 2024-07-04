@@ -1,14 +1,12 @@
 cmake_minimum_required(VERSION 3.18)
 
-file(STRINGS "configure.ac" CONFIGURE_AC_LINES)
-foreach(line ${CONFIGURE_AC_LINES})
-    if(line MATCHES [[^m4_define\(\[(MAJOR_VERSION|MINOR_VERSION|MICRO_VERSION)\],[ \t]*([0-9]+)\)$]])
-        set(LIBXML_${CMAKE_MATCH_1} ${CMAKE_MATCH_2})
-    elseif(line MATCHES "^(LIBXML_MAJOR_VERSION|LIBXML_MINOR_VERSION|LIBXML_MICRO_VERSION)=([0-9]+)$")
-        set(${CMAKE_MATCH_1} ${CMAKE_MATCH_2})
-    endif()
-endforeach()
-set(VERSION "${LIBXML_MAJOR_VERSION}.${LIBXML_MINOR_VERSION}.${LIBXML_MICRO_VERSION}")
+file(READ "VERSION" VERSION)
+string(STRIP ${VERSION} VERSION)
+if(${VERSION} MATCHES [[([0-9]+)\.([0-9]+)\.([0-9]+)]])
+    set(LIBXML_MAJOR_VERSION ${CMAKE_MATCH_1})
+    set(LIBXML_MINOR_VERSION ${CMAKE_MATCH_2})
+    set(LIBXML_MICRO_VERSION ${CMAKE_MATCH_3})
+endif()
 
 project(libxml2 VERSION ${VERSION} LANGUAGES C)
 
@@ -403,6 +401,8 @@ if(CMAKE_C_COMPILER_ID MATCHES "Clang" OR CMAKE_C_COMPILER_ID STREQUAL "GNU")
     endif()
 endif()
 
+set(LIBXML_MINOR_COMPAT 0)
+math(EXPR LIBXML_SOVERSION "${LIBXML_MAJOR_VERSION} + ${LIBXML_MINOR_COMPAT}")
 set_target_properties(
     LibXml2
     PROPERTIES
@@ -411,7 +411,7 @@ set_target_properties(
     POSITION_INDEPENDENT_CODE ON
     PREFIX lib
     VERSION ${PROJECT_VERSION}
-    SOVERSION ${LIBXML_MAJOR_VERSION}
+    SOVERSION ${LIBXML_SOVERSION}
 )
 
 if(MSVC)
@@ -562,8 +562,10 @@ if(LIBXML2_WITH_PYTHON)
 endif()
 
 install(FILES doc/xml2-config.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1 COMPONENT documentation)
-install(FILES doc/xmlcatalog.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1 COMPONENT documentation)
-install(FILES doc/xmllint.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1 COMPONENT documentation)
+if(LIBXML2_WITH_PROGRAMS)
+    install(FILES doc/xmlcatalog.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1 COMPONENT documentation)
+    install(FILES doc/xmllint.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1 COMPONENT documentation)
+endif()
 install(DIRECTORY doc/ DESTINATION ${CMAKE_INSTALL_DOCDIR} COMPONENT documentation
     PATTERN "Makefile.*" EXCLUDE
     PATTERN "meson.build" EXCLUDE

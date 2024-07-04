@@ -1927,8 +1927,11 @@ mem_error:
 int
 inputPush(xmlParserCtxtPtr ctxt, xmlParserInputPtr value)
 {
+    char *directory = NULL;
+
     if ((ctxt == NULL) || (value == NULL))
         return(-1);
+
     if (ctxt->inputNr >= ctxt->inputMax) {
         size_t newSize = ctxt->inputMax * 2;
         xmlParserInputPtr *tmp;
@@ -1942,9 +1945,24 @@ inputPush(xmlParserCtxtPtr ctxt, xmlParserInputPtr value)
         ctxt->inputTab = tmp;
         ctxt->inputMax = newSize;
     }
+
+    if ((ctxt->inputNr == 0) && (value->filename != NULL)) {
+        directory = xmlParserGetDirectory(value->filename);
+        if (directory == NULL) {
+            xmlErrMemory(ctxt);
+            return(-1);
+        }
+    }
+
     ctxt->inputTab[ctxt->inputNr] = value;
     ctxt->input = value;
-    return (ctxt->inputNr++);
+
+    if (ctxt->inputNr == 0) {
+        xmlFree(ctxt->directory);
+        ctxt->directory = directory;
+    }
+
+    return(ctxt->inputNr++);
 }
 /**
  * inputPop:
@@ -2941,6 +2959,8 @@ static int areBlanks(xmlParserCtxtPtr ctxt, const xmlChar *str, int len,
  * @ctxt:  an XML parser context
  * @name:  an XML parser context
  * @prefixOut:  a xmlChar **
+ *
+ * DEPRECATED: Don't use.
  *
  * parse an UTF8 encoded XML qualified name string
  *
@@ -5534,12 +5554,13 @@ xmlParsePI(xmlParserCtxtPtr ctxt) {
 		if ((ctxt->inSubset == 0) &&
 		    (xmlStrEqual(target, XML_CATALOG_PI))) {
 		    xmlCatalogAllow allow = xmlCatalogGetDefaults();
-		    if ((allow == XML_CATA_ALLOW_DOCUMENT) ||
-			(allow == XML_CATA_ALLOW_ALL))
+
+		    if (((ctxt->options & XML_PARSE_NO_CATALOG_PI) == 0) &&
+                        ((allow == XML_CATA_ALLOW_DOCUMENT) ||
+			 (allow == XML_CATA_ALLOW_ALL)))
 			xmlParseCatalogPI(ctxt, buf);
 		}
 #endif
-
 
 		/*
 		 * SAX: PI detected.
@@ -10405,6 +10426,38 @@ xmlParseXMLDecl(xmlParserCtxtPtr ctxt) {
 }
 
 /**
+ * xmlCtxtGetVersion:
+ * ctxt:  parser context
+ *
+ * Available since 2.14.0.
+ *
+ * Returns the version from the XML declaration.
+ */
+const xmlChar *
+xmlCtxtGetVersion(xmlParserCtxtPtr ctxt) {
+    if (ctxt == NULL)
+        return(NULL);
+
+    return(ctxt->version);
+}
+
+/**
+ * xmlCtxtGetStandalone:
+ * ctxt:  parser context
+ *
+ * Available since 2.14.0.
+ *
+ * Returns the value from the standalone document declaration.
+ */
+int
+xmlCtxtGetStandalone(xmlParserCtxtPtr ctxt) {
+    if (ctxt == NULL)
+        return(0);
+
+    return(ctxt->standalone);
+}
+
+/**
  * xmlParseMisc:
  * @ctxt:  an XML parser context
  *
@@ -13264,6 +13317,12 @@ xmlCtxtReset(xmlParserCtxtPtr ctxt)
     ctxt->extSubURI = NULL;
     DICT_FREE(ctxt->extSubSystem);
     ctxt->extSubSystem = NULL;
+
+    if (ctxt->directory != NULL) {
+        xmlFree(ctxt->directory);
+        ctxt->directory = NULL;
+    }
+
     if (ctxt->myDoc != NULL)
         xmlFreeDoc(ctxt->myDoc);
     ctxt->myDoc = NULL;
@@ -13582,6 +13641,18 @@ xmlCtxtSetOptionsInternal(xmlParserCtxtPtr ctxt, int options, int keepMask)
  *
  * Disables input decompression. Setting this option is recommended
  * to avoid zip bombs.
+ *
+ * Available since 2.14.0.
+ *
+ * XML_PARSE_NO_SYS_CATALOG
+ *
+ * Disables the global system XML catalog.
+ *
+ * Available since 2.14.0.
+ *
+ * XML_PARSE_NO_CATALOG_PI
+ *
+ * Ignore XML catalog processing instructions.
  *
  * Available since 2.14.0.
  *

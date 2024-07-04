@@ -112,10 +112,10 @@ xmlSaveErr(xmlOutputBufferPtr out, int code, xmlNodePtr node,
 	    msg = "unexpected error number\n";
     }
 
-    res = __xmlRaiseError(NULL, NULL, NULL, NULL, node,
-                          XML_FROM_OUTPUT, code, XML_ERR_ERROR, NULL, 0,
-                          extra, NULL, NULL, 0, 0,
-                          msg, extra);
+    res = xmlRaiseError(NULL, NULL, NULL, NULL, node,
+                        XML_FROM_OUTPUT, code, XML_ERR_ERROR, NULL, 0,
+                        extra, NULL, NULL, 0, 0,
+                        msg, extra);
     if (res < 0)
         xmlSaveErrMemory(out);
 }
@@ -271,6 +271,38 @@ xmlEscapeEntities(unsigned char* out, int *outlen,
  *			Allocation and deallocation			*
  *									*
  ************************************************************************/
+
+/**
+ * xmlSaveSetIndentString:
+ * @ctxt:  save context
+ * @indent:  indent string
+ *
+ * Sets the indent string.
+ *
+ * Available since 2.14.0.
+ *
+ * Returns 0 on success, -1 if the string is NULL, empty or too long.
+ */
+int
+xmlSaveSetIndentString(xmlSaveCtxtPtr ctxt, const char *indent) {
+    size_t len;
+    int i;
+
+    if (indent == NULL)
+        return(-1);
+
+    len = strlen(indent);
+    if ((len <= 0) || (len > MAX_INDENT))
+        return(-1);
+
+    ctxt->indent_size = len;
+    ctxt->indent_nr = MAX_INDENT / ctxt->indent_size;
+    for (i = 0; i < ctxt->indent_nr; i++)
+        memcpy(&ctxt->indent[i * ctxt->indent_size], indent, len);
+
+    return(0);
+}
+
 /**
  * xmlSaveCtxtInit:
  * @ctxt: the saving context
@@ -278,29 +310,25 @@ xmlEscapeEntities(unsigned char* out, int *outlen,
  * Initialize a saving context
  */
 static void
-xmlSaveCtxtInit(xmlSaveCtxtPtr ctxt)
+xmlSaveCtxtInit(xmlSaveCtxtPtr ctxt, int options)
 {
-    int i;
-    int len;
-
     if (ctxt == NULL) return;
+
     if ((ctxt->encoding == NULL) && (ctxt->escape == NULL))
         ctxt->escape = xmlEscapeEntities;
-    len = xmlStrlen((xmlChar *)xmlTreeIndentString);
-    if ((xmlTreeIndentString == NULL) || (len == 0)) {
-        memset(&ctxt->indent[0], 0, MAX_INDENT + 1);
-    } else {
-	ctxt->indent_size = len;
-	ctxt->indent_nr = MAX_INDENT / ctxt->indent_size;
-	for (i = 0;i < ctxt->indent_nr;i++)
-	    memcpy(&ctxt->indent[i * ctxt->indent_size], xmlTreeIndentString,
-		   ctxt->indent_size);
-        ctxt->indent[ctxt->indent_nr * ctxt->indent_size] = 0;
-    }
 
-    if (xmlSaveNoEmptyTags) {
-	ctxt->options |= XML_SAVE_NO_EMPTY;
-    }
+    xmlSaveSetIndentString(ctxt, xmlTreeIndentString);
+
+    if (options & XML_SAVE_FORMAT)
+        ctxt->format = 1;
+    else if (options & XML_SAVE_WSNONSIG)
+        ctxt->format = 2;
+
+    if (((options & XML_SAVE_EMPTY) == 0) &&
+        (xmlSaveNoEmptyTags))
+	options |= XML_SAVE_NO_EMPTY;
+
+    ctxt->options = options;
 }
 
 /**
@@ -351,22 +379,8 @@ xmlNewSaveCtxt(const char *encoding, int options)
         ret->encoding = xmlStrdup((const xmlChar *)encoding);
 	ret->escape = NULL;
     }
-    xmlSaveCtxtInit(ret);
 
-    /*
-     * Use the options
-     */
-
-    /* Re-check this option as it may already have been set */
-    if ((ret->options & XML_SAVE_NO_EMPTY) && ! (options & XML_SAVE_NO_EMPTY)) {
-	options |= XML_SAVE_NO_EMPTY;
-    }
-
-    ret->options = options;
-    if (options & XML_SAVE_FORMAT)
-        ret->format = 1;
-    else if (options & XML_SAVE_WSNONSIG)
-        ret->format = 2;
+    xmlSaveCtxtInit(ret, options);
 
     return(ret);
 }
@@ -837,6 +851,22 @@ xhtmlNodeDumpOutput(xmlSaveCtxtPtr ctxt, xmlNodePtr cur);
 static void xmlNodeDumpOutputInternal(xmlSaveCtxtPtr ctxt, xmlNodePtr cur);
 static int xmlDocContentDumpOutput(xmlSaveCtxtPtr ctxt, xmlDocPtr cur);
 
+static void
+xmlSaveWriteIndent(xmlSaveCtxtPtr ctxt, int extra)
+{
+    int level;
+
+    if ((ctxt->options & XML_SAVE_NO_INDENT) ||
+        (((ctxt->options & XML_SAVE_INDENT) == 0) &&
+         (xmlIndentTreeOutput == 0)))
+        return;
+
+    level = ctxt->level + extra;
+    if (level > ctxt->indent_nr)
+        level = ctxt->indent_nr;
+    xmlOutputBufferWrite(ctxt->buf, ctxt->indent_size * level, ctxt->indent);
+}
+
 /**
  * xmlOutputBufferWriteWSNonSig:
  * @ctxt:  The save context
@@ -1133,12 +1163,8 @@ xmlNodeDumpOutputInternal(xmlSaveCtxtPtr ctxt, xmlNodePtr cur) {
             break;
 
         case XML_ELEMENT_NODE:
-	    if ((cur != root) && (ctxt->format == 1) &&
-                (xmlIndentTreeOutput))
-		xmlOutputBufferWrite(buf, ctxt->indent_size *
-				     (ctxt->level > ctxt->indent_nr ?
-				      ctxt->indent_nr : ctxt->level),
-				     ctxt->indent);
+	    if ((cur != root) && (ctxt->format == 1))
+                xmlSaveWriteIndent(ctxt, 0);
 
             /*
              * Some users like lxml are known to pass nodes with a corrupted
@@ -1220,11 +1246,8 @@ xmlNodeDumpOutputInternal(xmlSaveCtxtPtr ctxt, xmlNodePtr cur) {
 	    break;
 
         case XML_PI_NODE:
-	    if ((cur != root) && (ctxt->format == 1) && (xmlIndentTreeOutput))
-		xmlOutputBufferWrite(buf, ctxt->indent_size *
-				     (ctxt->level > ctxt->indent_nr ?
-				      ctxt->indent_nr : ctxt->level),
-				     ctxt->indent);
+	    if ((cur != root) && (ctxt->format == 1))
+                xmlSaveWriteIndent(ctxt, 0);
 
             if (cur->content != NULL) {
                 xmlOutputBufferWrite(buf, 2, "<?");
@@ -1248,11 +1271,8 @@ xmlNodeDumpOutputInternal(xmlSaveCtxtPtr ctxt, xmlNodePtr cur) {
             break;
 
         case XML_COMMENT_NODE:
-	    if ((cur != root) && (ctxt->format == 1) && (xmlIndentTreeOutput))
-		xmlOutputBufferWrite(buf, ctxt->indent_size *
-				     (ctxt->level > ctxt->indent_nr ?
-				      ctxt->indent_nr : ctxt->level),
-				     ctxt->indent);
+	    if ((cur != root) && (ctxt->format == 1))
+                xmlSaveWriteIndent(ctxt, 0);
 
             if (cur->content != NULL) {
                 xmlOutputBufferWrite(buf, 4, "<!--");
@@ -1322,11 +1342,8 @@ xmlNodeDumpOutputInternal(xmlSaveCtxtPtr ctxt, xmlNodePtr cur) {
 
             if (cur->type == XML_ELEMENT_NODE) {
                 if (ctxt->level > 0) ctxt->level--;
-                if ((xmlIndentTreeOutput) && (ctxt->format == 1))
-                    xmlOutputBufferWrite(buf, ctxt->indent_size *
-                                         (ctxt->level > ctxt->indent_nr ?
-                                          ctxt->indent_nr : ctxt->level),
-                                         ctxt->indent);
+                if (ctxt->format == 1)
+                    xmlSaveWriteIndent(ctxt, 0);
 
                 xmlOutputBufferWrite(buf, 2, "</");
                 if ((cur->ns != NULL) && (cur->ns->prefix != NULL)) {
@@ -1712,11 +1729,8 @@ xhtmlNodeDumpOutput(xmlSaveCtxtPtr ctxt, xmlNodePtr cur) {
         case XML_ELEMENT_NODE:
             addmeta = 0;
 
-	    if ((cur != root) && (ctxt->format == 1) && (xmlIndentTreeOutput))
-		xmlOutputBufferWrite(buf, ctxt->indent_size *
-				     (ctxt->level > ctxt->indent_nr ?
-				      ctxt->indent_nr : ctxt->level),
-				     ctxt->indent);
+	    if ((cur != root) && (ctxt->format == 1))
+                xmlSaveWriteIndent(ctxt, 0);
 
             /*
              * Some users like lxml are known to pass nodes with a corrupted
@@ -1786,11 +1800,7 @@ xhtmlNodeDumpOutput(xmlSaveCtxtPtr ctxt, xmlNodePtr cur) {
                         xmlOutputBufferWrite(buf, 1, ">");
                         if (ctxt->format == 1) {
                             xmlOutputBufferWrite(buf, 1, "\n");
-                            if (xmlIndentTreeOutput)
-                                xmlOutputBufferWrite(buf, ctxt->indent_size *
-                                    (ctxt->level + 1 > ctxt->indent_nr ?
-                                    ctxt->indent_nr : ctxt->level + 1),
-                                    ctxt->indent);
+                            xmlSaveWriteIndent(ctxt, 1);
                         }
                         xmlOutputBufferWriteString(buf,
                                 "<meta http-equiv=\"Content-Type\" "
@@ -1824,11 +1834,7 @@ xhtmlNodeDumpOutput(xmlSaveCtxtPtr ctxt, xmlNodePtr cur) {
                 if (addmeta == 1) {
                     if (ctxt->format == 1) {
                         xmlOutputBufferWrite(buf, 1, "\n");
-                        if (xmlIndentTreeOutput)
-                            xmlOutputBufferWrite(buf, ctxt->indent_size *
-                                (ctxt->level + 1 > ctxt->indent_nr ?
-                                ctxt->indent_nr : ctxt->level + 1),
-                                ctxt->indent);
+                        xmlSaveWriteIndent(ctxt, 1);
                     }
                     xmlOutputBufferWriteString(buf,
                             "<meta http-equiv=\"Content-Type\" "
@@ -1958,11 +1964,8 @@ xhtmlNodeDumpOutput(xmlSaveCtxtPtr ctxt, xmlNodePtr cur) {
 
             if (cur->type == XML_ELEMENT_NODE) {
                 if (ctxt->level > 0) ctxt->level--;
-                if ((xmlIndentTreeOutput) && (ctxt->format == 1))
-                    xmlOutputBufferWrite(buf, ctxt->indent_size *
-                                         (ctxt->level > ctxt->indent_nr ?
-                                          ctxt->indent_nr : ctxt->level),
-                                         ctxt->indent);
+                if (ctxt->format == 1)
+                    xmlSaveWriteIndent(ctxt, 0);
 
                 xmlOutputBufferWrite(buf, 2, "</");
                 if ((cur->ns != NULL) && (cur->ns->prefix != NULL)) {
@@ -2574,6 +2577,7 @@ xmlNodeDumpOutput(xmlOutputBufferPtr buf, xmlDocPtr doc, xmlNodePtr cur,
                   int level, int format, const char *encoding)
 {
     xmlSaveCtxt ctxt;
+    int options;
 #ifdef LIBXML_HTML_ENABLED
     xmlDtdPtr dtd;
     int is_xhtml = 0;
@@ -2596,10 +2600,12 @@ xmlNodeDumpOutput(xmlOutputBufferPtr buf, xmlDocPtr doc, xmlNodePtr cur,
     memset(&ctxt, 0, sizeof(ctxt));
     ctxt.buf = buf;
     ctxt.level = level;
-    ctxt.format = format ? 1 : 0;
     ctxt.encoding = (const xmlChar *) encoding;
-    xmlSaveCtxtInit(&ctxt);
-    ctxt.options |= XML_SAVE_AS_XML;
+
+    options = XML_SAVE_AS_XML;
+    if (format)
+        options |= XML_SAVE_FORMAT;
+    xmlSaveCtxtInit(&ctxt, options);
 
 #ifdef LIBXML_HTML_ENABLED
     dtd = xmlGetIntSubset(doc);
@@ -2636,6 +2642,7 @@ xmlDocDumpFormatMemoryEnc(xmlDocPtr out_doc, xmlChar **doc_txt_ptr,
 		int * doc_txt_len, const char * txt_encoding,
 		int format) {
     xmlSaveCtxt ctxt;
+    int options;
     int                         dummy = 0;
     xmlOutputBufferPtr          out_buff = NULL;
     xmlCharEncodingHandlerPtr   conv_hdlr = NULL;
@@ -2685,10 +2692,13 @@ xmlDocDumpFormatMemoryEnc(xmlDocPtr out_doc, xmlChar **doc_txt_ptr,
     memset(&ctxt, 0, sizeof(ctxt));
     ctxt.buf = out_buff;
     ctxt.level = 0;
-    ctxt.format = format ? 1 : 0;
     ctxt.encoding = (const xmlChar *) txt_encoding;
-    xmlSaveCtxtInit(&ctxt);
-    ctxt.options |= XML_SAVE_AS_XML;
+
+    options = XML_SAVE_AS_XML;
+    if (format)
+        options |= XML_SAVE_FORMAT;
+    xmlSaveCtxtInit(&ctxt, options);
+
     xmlDocContentDumpOutput(&ctxt, out_doc);
     xmlOutputBufferFlush(out_buff);
 
@@ -2777,6 +2787,7 @@ xmlDocFormatDump(FILE *f, xmlDocPtr cur, int format) {
     const char * encoding;
     xmlCharEncodingHandlerPtr handler = NULL;
     int ret;
+    int options;
 
     if (cur == NULL) {
 	return(-1);
@@ -2798,10 +2809,13 @@ xmlDocFormatDump(FILE *f, xmlDocPtr cur, int format) {
     memset(&ctxt, 0, sizeof(ctxt));
     ctxt.buf = buf;
     ctxt.level = 0;
-    ctxt.format = format ? 1 : 0;
     ctxt.encoding = (const xmlChar *) encoding;
-    xmlSaveCtxtInit(&ctxt);
-    ctxt.options |= XML_SAVE_AS_XML;
+
+    options = XML_SAVE_AS_XML;
+    if (format)
+        options |= XML_SAVE_FORMAT;
+    xmlSaveCtxtInit(&ctxt, options);
+
     xmlDocContentDumpOutput(&ctxt, cur);
 
     ret = xmlOutputBufferClose(buf);
@@ -2847,10 +2861,10 @@ xmlSaveFileTo(xmlOutputBufferPtr buf, xmlDocPtr cur, const char *encoding) {
     memset(&ctxt, 0, sizeof(ctxt));
     ctxt.buf = buf;
     ctxt.level = 0;
-    ctxt.format = 0;
     ctxt.encoding = (const xmlChar *) encoding;
-    xmlSaveCtxtInit(&ctxt);
-    ctxt.options |= XML_SAVE_AS_XML;
+
+    xmlSaveCtxtInit(&ctxt, XML_SAVE_AS_XML);
+
     xmlDocContentDumpOutput(&ctxt, cur);
     ret = xmlOutputBufferClose(buf);
     return(ret);
@@ -2875,6 +2889,7 @@ xmlSaveFormatFileTo(xmlOutputBufferPtr buf, xmlDocPtr cur,
 {
     xmlSaveCtxt ctxt;
     int ret;
+    int options;
 
     if (buf == NULL) return(-1);
     if ((cur == NULL) ||
@@ -2886,10 +2901,13 @@ xmlSaveFormatFileTo(xmlOutputBufferPtr buf, xmlDocPtr cur,
     memset(&ctxt, 0, sizeof(ctxt));
     ctxt.buf = buf;
     ctxt.level = 0;
-    ctxt.format = format ? 1 : 0;
     ctxt.encoding = (const xmlChar *) encoding;
-    xmlSaveCtxtInit(&ctxt);
-    ctxt.options |= XML_SAVE_AS_XML;
+
+    options = XML_SAVE_AS_XML;
+    if (format)
+        options |= XML_SAVE_FORMAT;
+    xmlSaveCtxtInit(&ctxt, options);
+
     xmlDocContentDumpOutput(&ctxt, cur);
     ret = xmlOutputBufferClose(buf);
     return (ret);
@@ -2915,6 +2933,7 @@ xmlSaveFormatFileEnc( const char * filename, xmlDocPtr cur,
     xmlOutputBufferPtr buf;
     xmlCharEncodingHandlerPtr handler = NULL;
     int ret;
+    int options;
 
     if (cur == NULL)
 	return(-1);
@@ -2941,10 +2960,12 @@ xmlSaveFormatFileEnc( const char * filename, xmlDocPtr cur,
     memset(&ctxt, 0, sizeof(ctxt));
     ctxt.buf = buf;
     ctxt.level = 0;
-    ctxt.format = format ? 1 : 0;
     ctxt.encoding = (const xmlChar *) encoding;
-    xmlSaveCtxtInit(&ctxt);
-    ctxt.options |= XML_SAVE_AS_XML;
+
+    options = XML_SAVE_AS_XML;
+    if (format)
+        options |= XML_SAVE_FORMAT;
+    xmlSaveCtxtInit(&ctxt, options);
 
     xmlDocContentDumpOutput(&ctxt, cur);
 

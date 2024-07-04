@@ -174,10 +174,10 @@ xmlXIncludeErr(xmlXIncludeCtxtPtr ctxt, xmlNodePtr node, int error,
         data = xmlGenericErrorContext;
     }
 
-    res = __xmlRaiseError(schannel, channel, data, ctxt, node,
-                          XML_FROM_XINCLUDE, error, XML_ERR_ERROR,
-                          NULL, 0, (const char *) extra, NULL, NULL, 0, 0,
-		          msg, (const char *) extra);
+    res = xmlRaiseError(schannel, channel, data, ctxt, node,
+                        XML_FROM_XINCLUDE, error, XML_ERR_ERROR,
+                        NULL, 0, (const char *) extra, NULL, NULL, 0, 0,
+                        msg, (const char *) extra);
     if (res < 0) {
         ctxt->errNo = XML_ERR_NO_MEMORY;
         ctxt->fatalErr = 1;
@@ -418,6 +418,10 @@ xmlXIncludeAddNode(xmlXIncludeCtxtPtr ctxt, xmlNodePtr cur) {
             xmlXIncludeErrMemory(ctxt);
 	    goto error;
         }
+    } else if (xmlStrlen(href) > XML_MAX_URI_LENGTH) {
+        xmlXIncludeErr(ctxt, cur, XML_XINCLUDE_HREF_URI, "URI too long\n",
+                       NULL);
+        goto error;
     }
 
     parse = xmlXIncludeGetProp(ctxt, cur, XINCLUDE_PARSE);
@@ -634,7 +638,14 @@ xmlXIncludeBaseFixup(xmlXIncludeCtxtPtr ctxt, xmlNodePtr cur, xmlNodePtr copy,
         xmlXIncludeErrMemory(ctxt);
 
     if ((base != NULL) && !xmlStrEqual(base, targetBase)) {
-        if (xmlBuildRelativeURISafe(base, targetBase, &relBase) < 0) {
+        if ((xmlStrlen(base) > XML_MAX_URI_LENGTH) ||
+            (xmlStrlen(targetBase) > XML_MAX_URI_LENGTH)) {
+            relBase = xmlStrdup(base);
+            if (relBase == NULL) {
+                xmlXIncludeErrMemory(ctxt);
+                goto done;
+            }
+        } else if (xmlBuildRelativeURISafe(base, targetBase, &relBase) < 0) {
             xmlXIncludeErrMemory(ctxt);
             goto done;
         }

@@ -1,17 +1,17 @@
 project(
     'libxml2',
     'c',
-    version: '2.13.0',
+    version: files('VERSION'),
     license: 'MIT',
     default_options: ['buildtype=debug', 'warning_level=3'],
     meson_version: '>= 0.61',
 )
 
 v_array = meson.project_version().split('.')
-v_maj = v_array[0]
-v_min = v_array[1]
-v_mic = v_array[2]
-v_nbr = v_maj.to_int() * 10000 + v_min.to_int() * 100 + v_mic.to_int()
+v_maj = v_array[0].to_int()
+v_min = v_array[1].to_int()
+v_mic = v_array[2].to_int()
+v_nbr = v_maj * 10000 + v_min * 100 + v_mic
 v_extra = ''
 r = run_command('git', 'describe', check: false)
 if (r.returncode() == 0)
@@ -324,7 +324,7 @@ endif
 ### threads
 if want_threads
     threads_dep = dependency('threads')
-    config_h.set10('HAVE_PTHREAD_H', true)
+    config_h.set10(sys_windows ? 'HAVE_WIN32_THREADS' : 'HAVE_PTHREAD_H', true)
     xml_deps += threads_dep
 else
     threads_dep = dependency('', required: false)
@@ -466,6 +466,7 @@ foreach file : xml_opt_src
     endif
 endforeach
 
+v_min_compat = 0
 xml_lib = library(
     'xml2',
     files(xml_src),
@@ -474,6 +475,7 @@ xml_lib = library(
     include_directories: config_dir,
     install: true,
     version: meson.project_version(),
+    soversion: v_maj + v_min_compat,
 )
 
 dep_inc = include_directories('include')

@@ -296,9 +296,7 @@ XMLPUBVAR const xmlChar xmlStringText[];
 XMLPUBVAR const xmlChar xmlStringTextNoenc[];
 XMLPUBVAR const xmlChar xmlStringComment[];
 
-/*
- * Function to finish the work of the macros where needed.
- */
+XML_DEPRECATED
 XMLPUBFUN int                   xmlIsLetter     (int c);
 
 /**
@@ -378,7 +376,8 @@ XMLPUBFUN xmlParserInputPtr
 xmlInputCreateIO(const char *url, xmlInputReadCallback ioRead,
                  xmlInputCloseCallback ioClose, void *ioCtxt, int flags);
 XMLPUBFUN int
-xmlInputSetEncoding(xmlParserInputPtr input, const char *encoding);
+xmlInputSetEncodingHandler(xmlParserInputPtr input,
+                           xmlCharEncodingHandlerPtr handler);
 
 /**
  * Namespaces.
@@ -621,6 +620,7 @@ XMLPUBFUN int			xmlCurrentChar		(xmlParserCtxtPtr ctxt,
 						 int *len);
 XMLPUBFUN int		xmlCopyCharMultiByte	(xmlChar *out,
 						 int val);
+XML_DEPRECATED
 XMLPUBFUN int			xmlCopyChar		(int len,
 						 xmlChar *out,
 						 int val);
