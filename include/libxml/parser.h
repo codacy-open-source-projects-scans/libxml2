@@ -82,11 +82,11 @@ struct _xmlParserInput {
     /* unused */
     const char *directory XML_DEPRECATED_MEMBER;
     /* Base of the array to parse */
-    const xmlChar *base XML_DEPRECATED_MEMBER;
+    const xmlChar *base;
     /* Current char being parsed */
-    const xmlChar *cur XML_DEPRECATED_MEMBER;
+    const xmlChar *cur;
     /* end of the array to parse */
-    const xmlChar *end XML_DEPRECATED_MEMBER;
+    const xmlChar *end;
     /* unused */
     int length XML_DEPRECATED_MEMBER;
     /* Current line */
@@ -388,7 +388,7 @@ struct _xmlParserCtxt {
     /* is the document XML Namespace okay */
     int nsWellFormed;
     /* Extra options */
-    int options XML_DEPRECATED_MEMBER;
+    int options;
 
     /*
      * Those fields are needed only for streaming parsing so far
@@ -1087,7 +1087,7 @@ XML_DEPRECATED XMLPUBFUN int
 		xmlSubstituteEntitiesDefault(int val);
 XML_DEPRECATED XMLPUBFUN int
                 xmlThrDefSubstituteEntitiesDefaultValue(int v);
-XML_DEPRECATED XMLPUBFUN int
+XMLPUBFUN int
 		xmlKeepBlanksDefault	(int val);
 XML_DEPRECATED XMLPUBFUN int
 		xmlThrDefKeepBlanksDefaultValue(int v);
@@ -1480,6 +1480,11 @@ XMLPUBFUN xmlDocPtr
 XMLPUBFUN xmlDocPtr
 		xmlCtxtParseDocument	(xmlParserCtxtPtr ctxt,
 					 xmlParserInputPtr input);
+XMLPUBFUN xmlNodePtr
+		xmlCtxtParseContent	(xmlParserCtxtPtr ctxt,
+					 xmlParserInputPtr input,
+					 xmlNodePtr node,
+					 int hasTextDecl);
 XMLPUBFUN xmlDocPtr
 		xmlCtxtReadDoc		(xmlParserCtxtPtr ctxt,
 					 const xmlChar *cur,
@@ -1512,6 +1517,31 @@ XMLPUBFUN xmlDocPtr
 					 const char *URL,
 					 const char *encoding,
 					 int options);
+
+/**
+ * New input API
+ */
+
+#define XML_INPUT_BUF_STATIC		(1 << 1)
+#define XML_INPUT_BUF_ZERO_TERMINATED	(1 << 2)
+#define XML_INPUT_UNZIP                 (1 << 3)
+#define XML_INPUT_NETWORK               (1 << 4)
+
+XMLPUBFUN int
+xmlNewInputFromUrl(const char *url, int flags, xmlParserInputPtr *out);
+XMLPUBFUN xmlParserInputPtr
+xmlNewInputFromMemory(const char *url, const void *mem, size_t size,
+                      int flags);
+XMLPUBFUN xmlParserInputPtr
+xmlNewInputFromString(const char *url, const char *str, int flags);
+XMLPUBFUN xmlParserInputPtr
+xmlNewInputFromFd(const char *url, int fd, int flags);
+XMLPUBFUN xmlParserInputPtr
+xmlNewInputFromIO(const char *url, xmlInputReadCallback ioRead,
+                  xmlInputCloseCallback ioClose, void *ioCtxt, int flags);
+XMLPUBFUN int
+xmlInputSetEncodingHandler(xmlParserInputPtr input,
+                           xmlCharEncodingHandlerPtr handler);
 
 /*
  * Library wide options

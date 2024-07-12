@@ -4716,18 +4716,50 @@ htmlParseContentInternal(htmlParserCtxtPtr ctxt) {
     if (currentNode != NULL) xmlFree(currentNode);
 }
 
-/**
- * htmlParseContent:
- * @ctxt:  an HTML parser context
- *
- * Parse a content: comment, sub-element, reference or text.
- * This is the entry point when called from parser.c
- */
+xmlNodePtr
+htmlCtxtParseContentInternal(htmlParserCtxtPtr ctxt, xmlParserInputPtr input) {
+    xmlNodePtr root;
+    xmlNodePtr list = NULL;
+    xmlChar *rootName = BAD_CAST "#root";
 
-void
-__htmlParseContent(void *ctxt) {
-    if (ctxt != NULL)
-	htmlParseContentInternal((htmlParserCtxtPtr) ctxt);
+    root = xmlNewDocNode(ctxt->myDoc, NULL, rootName, NULL);
+    if (root == NULL) {
+        htmlErrMemory(ctxt);
+        return(NULL);
+    }
+
+    if (xmlPushInput(ctxt, input) < 0) {
+        xmlFreeNode(root);
+        return(NULL);
+    }
+
+    htmlnamePush(ctxt, rootName);
+    nodePush(ctxt, root);
+
+    htmlParseContentInternal(ctxt);
+
+    /* TODO: Use xmlCtxtIsCatastrophicError */
+    if (ctxt->errNo != XML_ERR_NO_MEMORY) {
+        xmlNodePtr cur;
+
+        /*
+         * Unlink newly created node list.
+         */
+        list = root->children;
+        root->children = NULL;
+        root->last = NULL;
+        for (cur = list; cur != NULL; cur = cur->next)
+            cur->parent = NULL;
+    }
+
+    nodePop(ctxt);
+    htmlnamePop(ctxt);
+
+    /* xmlPopInput would free the stream */
+    inputPop(ctxt);
+
+    xmlFreeNode(root);
+    return(list);
 }
 
 /**
@@ -4964,9 +4996,6 @@ htmlFreeParserCtxt(htmlParserCtxtPtr ctxt)
  *
  * See xmlCtxtSetErrorHandler for advanced error handling.
  *
- * See xmlNewInputURL, xmlNewInputMemory, xmlNewInputIO and similar
- * functions for advanced input control.
- *
  * See htmlNewSAXParserCtxt for custom SAX parsers.
  *
  * Returns the htmlParserCtxtPtr or NULL in case of allocation error
@@ -5027,13 +5056,17 @@ htmlCreateMemoryParserCtxtInternal(const char *url,
     if (ctxt == NULL)
 	return(NULL);
 
-    input = xmlNewInputMemory(ctxt, url, buffer, size, encoding, 0);
+    input = xmlCtxtNewInputFromMemory(ctxt, url, buffer, size, encoding, 0);
     if (input == NULL) {
 	xmlFreeParserCtxt(ctxt);
         return(NULL);
     }
 
-    inputPush(ctxt, input);
+    if (inputPush(ctxt, input) < 0) {
+        xmlFreeInputStream(input);
+        xmlFreeParserCtxt(ctxt);
+        return(NULL);
+    }
 
     return(ctxt);
 }
@@ -5080,13 +5113,18 @@ htmlCreateDocParserCtxt(const xmlChar *str, const char *url,
     if (ctxt == NULL)
 	return(NULL);
 
-    input = xmlNewInputString(ctxt, url, (const char *) str, encoding, 0);
+    input = xmlCtxtNewInputFromString(ctxt, url, (const char *) str,
+                                      encoding, 0);
     if (input == NULL) {
 	xmlFreeParserCtxt(ctxt);
 	return(NULL);
     }
 
-    inputPush(ctxt, input);
+    if (inputPush(ctxt, input) < 0) {
+        xmlFreeInputStream(input);
+        xmlFreeParserCtxt(ctxt);
+        return(NULL);
+    }
 
     return(ctxt);
 }
@@ -5809,13 +5847,17 @@ htmlCreatePushParserCtxt(htmlSAXHandlerPtr sax, void *user_data,
 	return(NULL);
 
     encoding = xmlGetCharEncodingName(enc);
-    input = xmlInputCreatePush(filename, chunk, size);
+    input = xmlNewPushInput(filename, chunk, size);
     if (input == NULL) {
 	htmlFreeParserCtxt(ctxt);
 	return(NULL);
     }
 
-    inputPush(ctxt, input);
+    if (inputPush(ctxt, input) < 0) {
+        xmlFreeInputStream(input);
+        xmlFreeParserCtxt(ctxt);
+        return(NULL);
+    }
 
     if (encoding != NULL)
         xmlSwitchEncodingName(ctxt, encoding);
@@ -5916,12 +5958,16 @@ htmlCreateFileParserCtxt(const char *filename, const char *encoding)
 	return(NULL);
     }
 
-    input = xmlNewInputURL(ctxt, filename, NULL, encoding, 0);
+    input = xmlCtxtNewInputFromUrl(ctxt, filename, NULL, encoding, 0);
     if (input == NULL) {
 	xmlFreeParserCtxt(ctxt);
 	return(NULL);
     }
-    inputPush(ctxt, input);
+    if (inputPush(ctxt, input) < 0) {
+        xmlFreeInputStream(input);
+        xmlFreeParserCtxt(ctxt);
+        return(NULL);
+    }
 
     return(ctxt);
 }
@@ -5977,8 +6023,6 @@ htmlSAXParseFile(const char *filename, const char *encoding, htmlSAXHandlerPtr s
  * @encoding:  encoding (optional)
  *
  * Parse an HTML file and build a tree.
- *
- * See xmlNewInputURL for details.
  *
  * Returns the resulting document tree
  */
@@ -6378,8 +6422,8 @@ htmlReadDoc(const xmlChar *str, const char *url, const char *encoding,
 
     htmlCtxtUseOptions(ctxt, options);
 
-    input = xmlNewInputString(ctxt, url, (const char *) str, encoding,
-                              XML_INPUT_BUF_STATIC);
+    input = xmlCtxtNewInputFromString(ctxt, url, (const char *) str, encoding,
+                                      XML_INPUT_BUF_STATIC);
 
     doc = htmlCtxtParseDocument(ctxt, input);
 
@@ -6413,7 +6457,7 @@ htmlReadFile(const char *filename, const char *encoding, int options)
 
     htmlCtxtUseOptions(ctxt, options);
 
-    input = xmlNewInputURL(ctxt, filename, NULL, encoding, 0);
+    input = xmlCtxtNewInputFromUrl(ctxt, filename, NULL, encoding, 0);
 
     doc = htmlCtxtParseDocument(ctxt, input);
 
@@ -6453,8 +6497,8 @@ htmlReadMemory(const char *buffer, int size, const char *url,
 
     htmlCtxtUseOptions(ctxt, options);
 
-    input = xmlNewInputMemory(ctxt, url, buffer, size, encoding,
-                              XML_INPUT_BUF_STATIC);
+    input = xmlCtxtNewInputFromMemory(ctxt, url, buffer, size, encoding,
+                                      XML_INPUT_BUF_STATIC);
 
     doc = htmlCtxtParseDocument(ctxt, input);
 
@@ -6492,7 +6536,7 @@ htmlReadFd(int fd, const char *url, const char *encoding, int options)
 
     htmlCtxtUseOptions(ctxt, options);
 
-    input = xmlNewInputFd(ctxt, url, fd, encoding, 0);
+    input = xmlCtxtNewInputFromFd(ctxt, url, fd, encoding, 0);
 
     doc = htmlCtxtParseDocument(ctxt, input);
 
@@ -6530,7 +6574,8 @@ htmlReadIO(xmlInputReadCallback ioread, xmlInputCloseCallback ioclose,
 
     htmlCtxtUseOptions(ctxt, options);
 
-    input = xmlNewInputIO(ctxt, url, ioread, ioclose, ioctx, encoding, 0);
+    input = xmlCtxtNewInputFromIO(ctxt, url, ioread, ioclose, ioctx,
+                                  encoding, 0);
 
     doc = htmlCtxtParseDocument(ctxt, input);
 
@@ -6564,7 +6609,8 @@ htmlCtxtReadDoc(htmlParserCtxtPtr ctxt, const xmlChar *str,
     htmlCtxtReset(ctxt);
     htmlCtxtUseOptions(ctxt, options);
 
-    input = xmlNewInputString(ctxt, URL, (const char *) str, encoding, 0);
+    input = xmlCtxtNewInputFromString(ctxt, URL, (const char *) str,
+                                      encoding, 0);
 
     return(htmlCtxtParseDocument(ctxt, input));
 }
@@ -6579,7 +6625,7 @@ htmlCtxtReadDoc(htmlParserCtxtPtr ctxt, const xmlChar *str,
  * Parse an HTML file from the filesystem, the network or a
  * user-defined resource loader.
  *
- * See xmlNewInputURL and htmlCtxtUseOptions for details.
+ * See htmlCtxtUseOptions for details.
  *
  * Returns the resulting document tree
  */
@@ -6595,7 +6641,7 @@ htmlCtxtReadFile(htmlParserCtxtPtr ctxt, const char *filename,
     htmlCtxtReset(ctxt);
     htmlCtxtUseOptions(ctxt, options);
 
-    input = xmlNewInputURL(ctxt, filename, NULL, encoding, 0);
+    input = xmlCtxtNewInputFromUrl(ctxt, filename, NULL, encoding, 0);
 
     return(htmlCtxtParseDocument(ctxt, input));
 }
@@ -6628,8 +6674,8 @@ htmlCtxtReadMemory(htmlParserCtxtPtr ctxt, const char *buffer, int size,
     htmlCtxtReset(ctxt);
     htmlCtxtUseOptions(ctxt, options);
 
-    input = xmlNewInputMemory(ctxt, URL, buffer, size, encoding,
-                              XML_INPUT_BUF_STATIC);
+    input = xmlCtxtNewInputFromMemory(ctxt, URL, buffer, size, encoding,
+                                      XML_INPUT_BUF_STATIC);
 
     return(htmlCtxtParseDocument(ctxt, input));
 }
@@ -6663,7 +6709,7 @@ htmlCtxtReadFd(htmlParserCtxtPtr ctxt, int fd,
     htmlCtxtReset(ctxt);
     htmlCtxtUseOptions(ctxt, options);
 
-    input = xmlNewInputFd(ctxt, URL, fd, encoding, 0);
+    input = xmlCtxtNewInputFromFd(ctxt, URL, fd, encoding, 0);
 
     return(htmlCtxtParseDocument(ctxt, input));
 }
@@ -6680,7 +6726,7 @@ htmlCtxtReadFd(htmlParserCtxtPtr ctxt, int fd,
  *
  * Parse an HTML document from I/O functions and source and build a tree.
  *
- * See xmlNewInputIO and htmlCtxtUseOptions for details.
+ * See htmlCtxtUseOptions for details.
  *
  * Returns the resulting document tree
  */
@@ -6698,7 +6744,8 @@ htmlCtxtReadIO(htmlParserCtxtPtr ctxt, xmlInputReadCallback ioread,
     htmlCtxtReset(ctxt);
     htmlCtxtUseOptions(ctxt, options);
 
-    input = xmlNewInputIO(ctxt, URL, ioread, ioclose, ioctx, encoding, 0);
+    input = xmlCtxtNewInputFromIO(ctxt, URL, ioread, ioclose, ioctx,
+                                  encoding, 0);
 
     return(htmlCtxtParseDocument(ctxt, input));
 }

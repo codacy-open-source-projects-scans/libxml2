@@ -513,6 +513,23 @@ xmlCompareEncTableEntries(const void *vkey, const void *ventry) {
     return(xmlStrcasecmp(BAD_CAST key, BAD_CAST entry->name));
 }
 
+static xmlCharEncoding
+xmlParseCharEncodingInternal(const char *name)
+{
+    const xmlEncTableEntry *entry;
+
+    if (name == NULL)
+       return(XML_CHAR_ENCODING_NONE);
+
+    entry = bsearch(name, xmlEncTable,
+                    sizeof(xmlEncTable) / sizeof(xmlEncTable[0]),
+                    sizeof(xmlEncTable[0]), xmlCompareEncTableEntries);
+    if (entry != NULL)
+        return(entry->enc);
+
+    return(XML_CHAR_ENCODING_ERROR);
+}
+
 /**
  * xmlParseCharEncoding:
  * @name:  the encoding name as parsed, in UTF-8 format (ASCII actually)
@@ -527,18 +544,13 @@ xmlCompareEncTableEntries(const void *vkey, const void *ventry) {
 xmlCharEncoding
 xmlParseCharEncoding(const char *name)
 {
-    const xmlEncTableEntry *entry;
+    xmlCharEncoding enc = xmlParseCharEncodingInternal(name);
 
-    if (name == NULL)
-       return(XML_CHAR_ENCODING_NONE);
+    /* Backward compatibility */
+    if (enc == XML_CHAR_ENCODING_UTF16)
+        enc = XML_CHAR_ENCODING_UTF16LE;
 
-    entry = bsearch(name, xmlEncTable,
-                    sizeof(xmlEncTable) / sizeof(xmlEncTable[0]),
-                    sizeof(xmlEncTable[0]), xmlCompareEncTableEntries);
-    if (entry != NULL)
-        return(entry->enc);
-
-    return(XML_CHAR_ENCODING_NONE);
+    return(enc);
 }
 
 /**
@@ -975,7 +987,7 @@ xmlCreateCharEncodingHandler(const char *name, int output,
     if (nalias != NULL)
 	name = nalias;
 
-    enc = xmlParseCharEncoding(name);
+    enc = xmlParseCharEncodingInternal(name);
 
     /* Return NULL handler for UTF-8 */
     if (enc == XML_CHAR_ENCODING_UTF8)
@@ -1907,39 +1919,45 @@ long
 xmlByteConsumed(xmlParserCtxtPtr ctxt) {
     xmlParserInputPtr in;
 
-    if (ctxt == NULL) return(-1);
+    if (ctxt == NULL)
+        return(-1);
     in = ctxt->input;
-    if (in == NULL)  return(-1);
+    if (in == NULL)
+        return(-1);
+
     if ((in->buf != NULL) && (in->buf->encoder != NULL)) {
-        unsigned int unused = 0;
+        int unused = 0;
 	xmlCharEncodingHandler * handler = in->buf->encoder;
+
         /*
 	 * Encoding conversion, compute the number of unused original
 	 * bytes from the input not consumed and subtract that from
 	 * the raw consumed value, this is not a cheap operation
 	 */
         if (in->end - in->cur > 0) {
-	    unsigned char convbuf[32000];
+	    unsigned char *convbuf;
 	    const unsigned char *cur = (const unsigned char *)in->cur;
-	    int toconv = in->end - in->cur, written = 32000;
+	    int toconv, ret;
 
-	    int ret;
+            convbuf = xmlMalloc(32000);
+            if (convbuf == NULL)
+                return(-1);
 
-            do {
-                toconv = in->end - cur;
-                written = 32000;
-                ret = xmlEncOutputChunk(handler, &convbuf[0], &written,
-                                        cur, &toconv);
-                if ((ret != XML_ENC_ERR_SUCCESS) && (ret != XML_ENC_ERR_SPACE))
-                    return(-1);
-                unused += written;
-                cur += toconv;
-            } while (ret == XML_ENC_ERR_SPACE);
+            toconv = in->end - cur;
+            unused = 32000;
+            ret = xmlEncOutputChunk(handler, convbuf, &unused, cur, &toconv);
+
+            xmlFree(convbuf);
+
+            if (ret != XML_ENC_ERR_SUCCESS)
+                return(-1);
 	}
-	if (in->buf->rawconsumed < unused)
+
+	if (in->buf->rawconsumed < (unsigned long) unused)
 	    return(-1);
 	return(in->buf->rawconsumed - unused);
     }
+
     return(in->consumed + (in->cur - in->base));
 }
 
@@ -2116,7 +2134,7 @@ UTF8ToLatin1(unsigned char* out, int *outlen,
 
         if (c < 0x80) {
             *out++ = c;
-        } else if (c < 0xC4) {
+        } else if ((c >= 0xC2) && (c <= 0xC3)) {
             if (inend - in < 2)
                 break;
             in++;
@@ -2254,48 +2272,75 @@ UTF8ToUTF16LE(unsigned char *out, int *outlen,
     inend = in + *inlen;
     outend = out + (*outlen & ~1);
     while (in < inend) {
-        if (out >= outend)
-            goto done;
-
         c = in[0];
 
         if (c < 0x80) {
+            if (out >= outend)
+                goto done;
             out[0] = c;
             out[1] = 0;
             in += 1;
             out += 2;
-        } else if (c < 0xE0) {
-            if (inend - in < 2)
+        } else {
+            int i, len;
+            unsigned min;
+
+            if (c < 0xE0) {
+                if (c < 0xC2) {
+                    ret = XML_ENC_ERR_INPUT;
+                    goto done;
+                }
+                c &= 0x1F;
+                len = 2;
+                min = 0x80;
+            } else if (c < 0xF0) {
+                c &= 0x0F;
+                len = 3;
+                min = 0x800;
+            } else {
+                c &= 0x0F;
+                len = 4;
+                min = 0x10000;
+            }
+
+            if (inend - in < len)
                 break;
-            c = ((c & 0x1F) << 6) | (in[1] & 0x3F);
-            out[0] = c & 0xFF;
-            out[1] = c >> 8;
-            in += 2;
-            out += 2;
-        } else if (c < 0xF0) {
-            if (inend - in < 3)
-                break;
-            c = ((c & 0x0F) << 12) | ((in[1] & 0x3F) << 6) | (in[2] & 0x3F);
-            out[0] = c & 0xFF;
-            out[1] = c >> 8;
-            in += 3;
-            out += 2;
-        } else { /* c >= 0xF0 */
-            if (inend - in < 4)
-                break;
-            if (outend - out < 4)
+
+            for (i = 1; i < len; i++) {
+                if ((in[i] & 0xC0) != 0x80) {
+                    ret = XML_ENC_ERR_INPUT;
+                    goto done;
+                }
+                c = (c << 6) | (in[i] & 0x3F);
+            }
+
+            if ((c < min) ||
+                ((c >= 0xD800) && (c <= 0xDFFF)) ||
+                (c > 0x10FFFF)) {
+                ret = XML_ENC_ERR_INPUT;
                 goto done;
-            c = ((c & 0x0F) << 18) | ((in[1] & 0x3F) << 12) |
-                ((in[2] & 0x3F) << 6) | (in[3] & 0x3F);
-            c -= 0x10000;
-            d = (c & 0x03FF) | 0xDC00;
-            c = (c >> 10)    | 0xD800;
-            out[0] = c & 0xFF;
-            out[1] = c >> 8;
-            out[2] = d & 0xFF;
-            out[3] = d >> 8;
-            in += 4;
-            out += 4;
+            }
+
+            if (c < 0x10000) {
+                if (out >= outend)
+                    goto done;
+                out[0] = c & 0xFF;
+                out[1] = c >> 8;
+                out += 2;
+            } else {
+                if (outend - out < 4)
+                    goto done;
+                c -= 0x10000;
+                d = (c & 0x03FF) | 0xDC00;
+                c = (c >> 10)    | 0xD800;
+                out[0] = c & 0xFF;
+                out[1] = c >> 8;
+                out[2] = d & 0xFF;
+                out[3] = d >> 8;
+                out += 4;
+            }
+
+            in += len;
         }
     }
 
@@ -2420,47 +2465,75 @@ UTF8ToUTF16BE(unsigned char *out, int *outlen,
     inend = in + *inlen;
     outend = out + (*outlen & ~1);
     while (in < inend) {
-        if (out >= outend)
-            goto done;
         c = in[0];
 
         if (c < 0x80) {
+            if (out >= outend)
+                goto done;
             out[0] = 0;
             out[1] = c;
             in += 1;
             out += 2;
-        } else if (c < 0xE0) {
-            if (inend - in < 2)
+        } else {
+            int i, len;
+            unsigned min;
+
+            if (c < 0xE0) {
+                if (c < 0xC2) {
+                    ret = XML_ENC_ERR_INPUT;
+                    goto done;
+                }
+                c &= 0x1F;
+                len = 2;
+                min = 0x80;
+            } else if (c < 0xF0) {
+                c &= 0x0F;
+                len = 3;
+                min = 0x800;
+            } else {
+                c &= 0x0F;
+                len = 4;
+                min = 0x10000;
+            }
+
+            if (inend - in < len)
                 break;
-            c = ((c & 0x1F) << 6) | (in[1] & 0x3F);
-            out[0] = c >> 8;
-            out[1] = c & 0xFF;
-            in += 2;
-            out += 2;
-        } else if (c < 0xF0) {
-            if (inend - in < 3)
-                break;
-            c = ((c & 0x0F) << 12) | ((in[1] & 0x3F) << 6) | (in[2] & 0x3F);
-            out[0] = c >> 8;
-            out[1] = c & 0xFF;
-            in += 3;
-            out += 2;
-        } else { /* c >= 0xF0 */
-            if (inend - in < 4)
-                break;
-            if (outend - out < 4)
+
+            for (i = 1; i < len; i++) {
+                if ((in[i] & 0xC0) != 0x80) {
+                    ret = XML_ENC_ERR_INPUT;
+                    goto done;
+                }
+                c = (c << 6) | (in[i] & 0x3F);
+            }
+
+            if ((c < min) ||
+                ((c >= 0xD800) && (c <= 0xDFFF)) ||
+                (c > 0x10FFFF)) {
+                ret = XML_ENC_ERR_INPUT;
                 goto done;
-            c = ((c & 0x0F) << 18) | ((in[1] & 0x3F) << 12) |
-                ((in[2] & 0x3F) << 6) | (in[3] & 0x3F);
-            c -= 0x10000;
-            d = (c & 0x03FF) | 0xDC00;
-            c = (c >> 10)    | 0xD800;
-            out[0] = c >> 8;
-            out[1] = c & 0xFF;
-            out[2] = d >> 8;
-            out[3] = d & 0xFF;
-            in += 4;
-            out += 4;
+            }
+
+            if (c < 0x10000) {
+                if (out >= outend)
+                    goto done;
+                out[0] = c >> 8;
+                out[1] = c & 0xFF;
+                out += 2;
+            } else {
+                if (outend - out < 4)
+                    goto done;
+                c -= 0x10000;
+                d = (c & 0x03FF) | 0xDC00;
+                c = (c >> 10)    | 0xD800;
+                out[0] = c >> 8;
+                out[1] = c & 0xFF;
+                out[2] = d >> 8;
+                out[3] = d & 0xFF;
+                out += 4;
+            }
+
+            in += len;
         }
     }
 

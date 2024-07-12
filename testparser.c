@@ -4,10 +4,14 @@
  * See Copyright for the status of this software.
  */
 
+#define XML_DEPRECATED
+
 #include "libxml.h"
 #include <libxml/parser.h>
+#include <libxml/parserInternals.h>
 #include <libxml/uri.h>
 #include <libxml/xmlreader.h>
+#include <libxml/xmlsave.h>
 #include <libxml/xmlwriter.h>
 #include <libxml/HTMLparser.h>
 
@@ -95,6 +99,112 @@ testNodeGetContent(void) {
 
     return err;
 }
+
+static int
+testCFileIO(void) {
+    xmlDocPtr doc;
+    int err = 0;
+
+    /* Deprecated FILE-based API */
+    xmlRegisterInputCallbacks(xmlFileMatch, xmlFileOpen, xmlFileRead,
+                              xmlFileClose);
+    doc = xmlReadFile("test/ent1", NULL, 0);
+
+    if (doc == NULL) {
+        err = 1;
+    } else {
+        xmlNodePtr root = xmlDocGetRootElement(doc);
+
+        if (root == NULL || !xmlStrEqual(root->name, BAD_CAST "EXAMPLE"))
+            err = 1;
+    }
+
+    xmlFreeDoc(doc);
+    xmlPopInputCallbacks();
+
+    if (err)
+        fprintf(stderr, "xmlReadFile failed with FILE input callbacks\n");
+
+    return err;
+}
+
+#ifdef LIBXML_OUTPUT_ENABLED
+static xmlChar *
+dumpNodeList(xmlNodePtr list) {
+    xmlBufferPtr buffer;
+    xmlSaveCtxtPtr save;
+    xmlNodePtr cur;
+    xmlChar *ret;
+
+    buffer = xmlBufferCreate();
+    save = xmlSaveToBuffer(buffer, "UTF-8", 0);
+    for (cur = list; cur != NULL; cur = cur->next)
+        xmlSaveTree(save, cur);
+    xmlSaveClose(save);
+
+    ret = xmlBufferDetach(buffer);
+    xmlBufferFree(buffer);
+    return ret;
+}
+
+static int
+testCtxtParseContent(void) {
+    xmlParserCtxtPtr ctxt;
+    xmlParserInputPtr input;
+    xmlDocPtr doc;
+    xmlNodePtr node, list;
+    const char *content;
+    xmlChar *output;
+    int i, j;
+    int err = 0;
+
+    static const char *const tests[] = {
+        "<!-- c -->\xF0\x9F\x98\x84<a/><b/>end",
+        "text<a:foo><b:foo/></a:foo>text<!-- c -->"
+    };
+
+    doc = xmlReadDoc(BAD_CAST "<doc xmlns:a='a'><elem xmlns:b='b'/></doc>",
+                     NULL, NULL, 0);
+    node = doc->children->children;
+
+    ctxt = xmlNewParserCtxt();
+
+    for (i = 0; (size_t) i < sizeof(tests) / sizeof(tests[0]); i++) {
+        content = tests[i];
+
+        for (j = 0; j < 2; j++) {
+            if (j == 0) {
+                input = xmlNewInputFromString(NULL, content,
+                                              XML_INPUT_BUF_STATIC);
+                list = xmlCtxtParseContent(ctxt, input, node, 0);
+            } else {
+                xmlParseInNodeContext(node, content, strlen(content), 0,
+                                      &list);
+            }
+
+            output = dumpNodeList(list);
+
+            if ((j == 0 && ctxt->nsWellFormed == 0) ||
+                strcmp((char *) output, content) != 0) {
+                fprintf(stderr, "%s failed test %d, got:\n%s\n",
+                        j == 0 ?
+                            "xmlCtxtParseContent" :
+                            "xmlParseInNodeContext",
+                        i, output);
+                err = 1;
+            }
+
+            xmlFree(output);
+            xmlFreeNodeList(list);
+        }
+    }
+
+    xmlFreeParserCtxt(ctxt);
+    xmlFreeDoc(doc);
+
+    return err;
+}
+#endif /* LIBXML_OUTPUT_ENABLED */
 
 #ifdef LIBXML_SAX1_ENABLED
 static int
@@ -650,6 +760,10 @@ main(void) {
     err |= testStandaloneWithEncoding();
     err |= testUnsupportedEncoding();
     err |= testNodeGetContent();
+    err |= testCFileIO();
+#ifdef LIBXML_OUTPUT_ENABLED
+    err |= testCtxtParseContent();
+#endif
 #ifdef LIBXML_SAX1_ENABLED
     err |= testBalancedChunk();
 #endif
