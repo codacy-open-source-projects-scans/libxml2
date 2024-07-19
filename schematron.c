@@ -1048,7 +1048,7 @@ xmlSchematronParseRule(xmlSchematronParserCtxtPtr ctxt,
                 return;
             }
 
-            let = (xmlSchematronLetPtr) malloc(sizeof(xmlSchematronLet));
+            let = (xmlSchematronLetPtr) xmlMalloc(sizeof(xmlSchematronLet));
             let->name = name;
             let->comp = var_comp;
             let->next = NULL;
@@ -1449,7 +1449,7 @@ xmlSchematronReportOutput(xmlSchematronValidCtxtPtr ctxt ATTRIBUTE_UNUSED,
                           xmlNodePtr cur ATTRIBUTE_UNUSED,
                           const char *msg) {
     /* TODO */
-    fprintf(stderr, "%s", msg);
+    xmlPrintErrorMessage("%s", msg);
 }
 
 /**
@@ -2045,48 +2045,5 @@ xmlSchematronValidateDoc(xmlSchematronValidCtxtPtr ctxt, xmlDocPtr instance)
     }
     return(ctxt->nberrors);
 }
-
-#ifdef STANDALONE
-int
-main(void)
-{
-    int ret;
-    xmlDocPtr instance;
-    xmlSchematronParserCtxtPtr pctxt;
-    xmlSchematronValidCtxtPtr vctxt;
-    xmlSchematronPtr schema = NULL;
-
-    pctxt = xmlSchematronNewParserCtxt("tst.sct");
-    if (pctxt == NULL) {
-        fprintf(stderr, "failed to build schematron parser\n");
-    } else {
-        schema = xmlSchematronParse(pctxt);
-        if (schema == NULL) {
-            fprintf(stderr, "failed to compile schematron\n");
-        }
-        xmlSchematronFreeParserCtxt(pctxt);
-    }
-    instance = xmlReadFile("tst.sct", NULL,
-                           XML_PARSE_NOENT | XML_PARSE_NOCDATA);
-    if (instance == NULL) {
-        fprintf(stderr, "failed to parse instance\n");
-    }
-    if ((schema != NULL) && (instance != NULL)) {
-        vctxt = xmlSchematronNewValidCtxt(schema);
-        if (vctxt == NULL) {
-            fprintf(stderr, "failed to build schematron validator\n");
-        } else {
-            ret = xmlSchematronValidateDoc(vctxt, instance);
-            xmlSchematronFreeValidCtxt(vctxt);
-        }
-    }
-    xmlSchematronFree(schema);
-    xmlFreeDoc(instance);
-
-    xmlCleanupParser();
-
-    return (0);
-}
-#endif
 
 #endif /* LIBXML_SCHEMATRON_ENABLED */

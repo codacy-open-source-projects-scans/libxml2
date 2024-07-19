@@ -44,8 +44,13 @@
 
 #include "private/buf.h"
 #include "private/enc.h"
+#include "private/entities.h"
 #include "private/error.h"
 #include "private/io.h"
+
+#ifndef SIZE_MAX
+  #define SIZE_MAX ((size_t) -1)
+#endif
 
 /* #define VERBOSE_FAILURE */
 
@@ -1181,6 +1186,8 @@ xmlOutputDefaultOpen(xmlOutputBufferPtr buf, const char *filename,
  * xmlAllocParserInputBuffer:
  * @enc:  the charset encoding if known (deprecated)
  *
+ * DEPRECATED: Use xmlNewInputFrom*.
+ *
  * Create a buffered parser input for progressive parsing.
  *
  * The encoding argument is deprecated and should be set to
@@ -1198,12 +1205,11 @@ xmlAllocParserInputBuffer(xmlCharEncoding enc) {
 	return(NULL);
     }
     memset(ret, 0, sizeof(xmlParserInputBuffer));
-    ret->buffer = xmlBufCreateSize(2 * xmlDefaultBufferSize);
+    ret->buffer = xmlBufCreate(XML_IO_BUFFER_SIZE);
     if (ret->buffer == NULL) {
         xmlFree(ret);
 	return(NULL);
     }
-    xmlBufSetAllocationScheme(ret->buffer, XML_BUFFER_ALLOC_DOUBLEIT);
     if (enc != XML_CHAR_ENCODING_NONE) {
         if (xmlLookupCharEncodingHandler(enc, &ret->encoder) != 0) {
             /* We can't handle errors properly here. */
@@ -1212,7 +1218,7 @@ xmlAllocParserInputBuffer(xmlCharEncoding enc) {
         }
     }
     if (ret->encoder != NULL)
-        ret->raw = xmlBufCreateSize(2 * xmlDefaultBufferSize);
+        ret->raw = xmlBufCreate(XML_IO_BUFFER_SIZE);
     else
         ret->raw = NULL;
     ret->readcallback = NULL;
@@ -1242,16 +1248,15 @@ xmlAllocOutputBuffer(xmlCharEncodingHandlerPtr encoder) {
 	return(NULL);
     }
     memset(ret, 0, sizeof(xmlOutputBuffer));
-    ret->buffer = xmlBufCreate();
+    ret->buffer = xmlBufCreate(MINLEN);
     if (ret->buffer == NULL) {
         xmlFree(ret);
 	return(NULL);
     }
-    xmlBufSetAllocationScheme(ret->buffer, XML_BUFFER_ALLOC_IO);
 
     ret->encoder = encoder;
     if (encoder != NULL) {
-        ret->conv = xmlBufCreateSize(4000);
+        ret->conv = xmlBufCreate(MINLEN);
 	if (ret->conv == NULL) {
             xmlBufFree(ret->buffer);
 	    xmlFree(ret);
@@ -1289,21 +1294,15 @@ xmlAllocOutputBufferInternal(xmlCharEncodingHandlerPtr encoder) {
 	return(NULL);
     }
     memset(ret, 0, sizeof(xmlOutputBuffer));
-    ret->buffer = xmlBufCreate();
+    ret->buffer = xmlBufCreate(MINLEN);
     if (ret->buffer == NULL) {
         xmlFree(ret);
 	return(NULL);
     }
 
-
-    /*
-     * For conversion buffers we use the special IO handling
-     */
-    xmlBufSetAllocationScheme(ret->buffer, XML_BUFFER_ALLOC_IO);
-
     ret->encoder = encoder;
     if (encoder != NULL) {
-        ret->conv = xmlBufCreateSize(4000);
+        ret->conv = xmlBufCreate(MINLEN);
 	if (ret->conv == NULL) {
             xmlBufFree(ret->buffer);
 	    xmlFree(ret);
@@ -1484,6 +1483,8 @@ __xmlParserInputBufferCreateFilename(const char *URI, xmlCharEncoding enc) {
  * @URI:  a C string containing the URI or filename
  * @enc:  the charset encoding if known
  *
+ * DEPRECATED: Use xmlNewInputFromUrl.
+ *
  * Create a buffered parser input for the progressive parsing of a file
  * Automatic support for ZLIB/Compress compressed document is provided
  * by default if found at compile-time.
@@ -1604,6 +1605,8 @@ xmlOutputBufferCreateFilename(const char *URI,
  * @file:  a FILE*
  * @enc:  the charset encoding if known (deprecated)
  *
+ * DEPRECATED: Don't use.
+ *
  * Create a buffered parser input for the progressive parsing of a FILE *
  * buffered C I/O
  *
@@ -1718,6 +1721,8 @@ xmlOutputBufferGetSize(xmlOutputBufferPtr out) {
  * @fd:  a file descriptor number
  * @enc:  the charset encoding if known (deprecated)
  *
+ * DEPRECATED: Use xmlNewInputFromFd.
+ *
  * Create a buffered parser input for the progressive parsing for the input
  * from a file descriptor
  *
@@ -1743,7 +1748,6 @@ xmlParserInputBufferCreateFd(int fd, xmlCharEncoding enc) {
 }
 
 typedef struct {
-    char *mem;
     const char *cur;
     size_t size;
 } xmlMemIOCtxt;
@@ -1766,8 +1770,6 @@ static int
 xmlMemClose(void *vctxt) {
     xmlMemIOCtxt *ctxt = vctxt;
 
-    if (ctxt->mem != NULL)
-        xmlFree(ctxt->mem);
     xmlFree(ctxt);
     return(0);
 }
@@ -1787,41 +1789,45 @@ xmlParserInputBufferPtr
 xmlNewInputBufferMemory(const void *mem, size_t size, int flags,
                         xmlCharEncoding enc) {
     xmlParserInputBufferPtr ret;
-    xmlMemIOCtxt *ctxt;
-    char *copy = NULL;
 
-    if ((flags & XML_INPUT_BUF_STATIC) == 0) {
-        if (size + 1 == 0)
+    if ((flags & XML_INPUT_BUF_STATIC) &&
+        ((flags & XML_INPUT_BUF_ZERO_TERMINATED) == 0)) {
+        xmlMemIOCtxt *ctxt;
+
+        /*
+         * Static buffer without zero terminator.
+         * Stream memory to avoid a copy.
+         */
+        ret = xmlAllocParserInputBuffer(enc);
+        if (ret == NULL)
             return(NULL);
-        copy = xmlMalloc(size + 1);
-        if (copy == NULL)
+
+        ctxt = xmlMalloc(sizeof(*ctxt));
+        if (ctxt == NULL) {
+            xmlFreeParserInputBuffer(ret);
             return(NULL);
-        memcpy(copy, mem, size);
-        copy[size] = 0;
+        }
 
-        mem = copy;
+        ctxt->cur = mem;
+        ctxt->size = size;
+
+        ret->context = ctxt;
+        ret->readcallback = xmlMemRead;
+        ret->closecallback = xmlMemClose;
+    } else {
+        ret = xmlMalloc(sizeof(*ret));
+        if (ret == NULL)
+            return(NULL);
+        memset(ret, 0, sizeof(xmlParserInputBuffer));
+        ret->compressed = -1;
+
+        ret->buffer = xmlBufCreateMem((const xmlChar *) mem, size,
+                                      (flags & XML_INPUT_BUF_STATIC ? 1 : 0));
+        if (ret->buffer == NULL) {
+            xmlFree(ret);
+            return(NULL);
+        }
     }
-
-    ret = xmlAllocParserInputBuffer(enc);
-    if (ret == NULL) {
-        xmlFree(copy);
-        return(NULL);
-    }
-
-    ctxt = xmlMalloc(sizeof(*ctxt));
-    if (ctxt == NULL) {
-        xmlFreeParserInputBuffer(ret);
-        xmlFree(copy);
-        return(NULL);
-    }
-
-    ctxt->mem = copy;
-    ctxt->cur = mem;
-    ctxt->size = size;
-
-    ret->context = ctxt;
-    ret->readcallback = xmlMemRead;
-    ret->closecallback = xmlMemClose;
 
     return(ret);
 }
@@ -1831,6 +1837,8 @@ xmlNewInputBufferMemory(const void *mem, size_t size, int flags,
  * @mem:  the memory input
  * @size:  the length of the memory block
  * @enc:  the charset encoding if known (deprecated)
+ *
+ * DEPRECATED: Use xmlNewInputFromMemory.
  *
  * Create a parser input buffer for parsing from a memory area.
  *
@@ -1859,6 +1867,8 @@ xmlParserInputBufferCreateMem(const char *mem, int size, xmlCharEncoding enc) {
  * @size:  the length of the memory block
  * @enc:  the charset encoding if known
  *
+ * DEPRECATED: Use xmlNewInputFromMemory.
+ *
  * Create a parser input buffer for parsing from a memory area.
  *
  * This functions assumes that the contents of the input buffer remain
@@ -1880,64 +1890,33 @@ xmlParserInputBufferCreateStatic(const char *mem, int size,
     return(xmlNewInputBufferMemory(mem, size, XML_INPUT_BUF_STATIC, enc));
 }
 
-typedef struct {
-    const char *str;
-} xmlStringIOCtxt;
-
-static int
-xmlStringRead(void *vctxt, char *buf, int size) {
-    xmlStringIOCtxt *ctxt = vctxt;
-    const char *zero;
-    size_t len;
-
-    zero = memchr(ctxt->str, 0, size);
-    len = zero ? zero - ctxt->str : size;
-
-    memcpy(buf, ctxt->str, len);
-    ctxt->str += len;
-
-    return(len);
-}
-
-static int
-xmlStringClose(void *vctxt) {
-    xmlFree(vctxt);
-    return(0);
-}
-
 /**
  * xmlNewInputBufferString:
  * @str:  C string
  * @flags:  flags
  *
- * Create an input buffer for a null-teriminated C string.
+ * DEPRECATED: Use xmlNewInputFromString.
+ *
+ * Create an input buffer for a null-terminated C string.
  *
  * Returns the new input buffer or NULL.
  */
 xmlParserInputBufferPtr
 xmlNewInputBufferString(const char *str, int flags) {
     xmlParserInputBufferPtr ret;
-    xmlStringIOCtxt *ctxt;
 
-    if ((flags & XML_INPUT_BUF_STATIC) == 0)
-        return(xmlNewInputBufferMemory(str, strlen(str), flags,
-                                       XML_CHAR_ENCODING_NONE));
-
-    ret = xmlAllocParserInputBuffer(XML_CHAR_ENCODING_NONE);
+    ret = xmlMalloc(sizeof(*ret));
     if (ret == NULL)
-        return(NULL);
+	return(NULL);
+    memset(ret, 0, sizeof(xmlParserInputBuffer));
+    ret->compressed = -1;
 
-    ctxt = xmlMalloc(sizeof(*ctxt));
-    if (ctxt == NULL) {
-        xmlFreeParserInputBuffer(ret);
-        return(NULL);
+    ret->buffer = xmlBufCreateMem((const xmlChar *) str, strlen(str),
+                                  (flags & XML_INPUT_BUF_STATIC ? 1 : 0));
+    if (ret->buffer == NULL) {
+        xmlFree(ret);
+	return(NULL);
     }
-
-    ctxt->str = str;
-
-    ret->context = ctxt;
-    ret->readcallback = xmlStringRead;
-    ret->closecallback = xmlStringClose;
 
     return(ret);
 }
@@ -1976,6 +1955,8 @@ xmlOutputBufferCreateFd(int fd, xmlCharEncodingHandlerPtr encoder) {
  * @ioclose:  an I/O close function
  * @ioctx:  an I/O handler
  * @enc:  the charset encoding if known (deprecated)
+ *
+ * DEPRECATED: Use xmlNewInputFromIO.
  *
  * Create a buffered parser input for the progressive parsing for the input
  * from an I/O handler
@@ -2088,6 +2069,8 @@ xmlOutputBufferCreateFilenameDefault(xmlOutputBufferCreateFilenameFunc func)
  * @len:  the size in bytes of the array.
  * @buf:  an char array
  *
+ * DEPRECATED: Internal function, don't use.
+ *
  * Push the content of the arry in the input buffer
  * This routine handle the I18N transcoding to internal UTF-8
  * This is used when operating the parser in progressive (push) mode.
@@ -2098,7 +2081,7 @@ xmlOutputBufferCreateFilenameDefault(xmlOutputBufferCreateFilenameFunc func)
 int
 xmlParserInputBufferPush(xmlParserInputBufferPtr in,
 	                 int len, const char *buf) {
-    int nbchars = 0;
+    size_t nbchars = 0;
     int ret;
 
     if (len < 0) return(0);
@@ -2108,7 +2091,7 @@ xmlParserInputBufferPush(xmlParserInputBufferPtr in,
 	 * Store the data in the incoming raw buffer
 	 */
         if (in->raw == NULL) {
-	    in->raw = xmlBufCreate();
+	    in->raw = xmlBufCreate(50);
             if (in->raw == NULL) {
                 in->error = XML_ERR_NO_MEMORY;
                 return(-1);
@@ -2123,9 +2106,11 @@ xmlParserInputBufferPush(xmlParserInputBufferPtr in,
 	/*
 	 * convert as much as possible to the parser reading buffer.
 	 */
-	nbchars = xmlCharEncInput(in);
-	if (nbchars < 0)
-	    return(-1);
+        nbchars = SIZE_MAX;
+	if (xmlCharEncInput(in, &nbchars) < 0)
+            return(-1);
+        if (nbchars > INT_MAX)
+            nbchars = INT_MAX;
     } else {
 	nbchars = len;
         ret = xmlBufAdd(in->buffer, (xmlChar *) buf, nbchars);
@@ -2155,41 +2140,49 @@ endOfInput (void * context ATTRIBUTE_UNUSED,
  * @in:  a buffered parser input
  * @len:  indicative value of the amount of chars to read
  *
+ * DEPRECATED: Internal function, don't use.
+ *
  * Grow up the content of the input buffer, the old data are preserved
  * This routine handle the I18N transcoding to internal UTF-8
  * This routine is used when operating the parser in normal (pull) mode
- *
- * TODO: one should be able to remove one extra copy by copying directly
- *       onto in->buffer or in->raw
  *
  * Returns the number of chars read and stored in the buffer, or -1
  *         in case of error.
  */
 int
 xmlParserInputBufferGrow(xmlParserInputBufferPtr in, int len) {
-    xmlBufPtr buf;
     int res = 0;
 
-    if ((in == NULL) || (in->error)) return(-1);
-    if ((len <= MINLEN) && (len != 4))
-        len = MINLEN;
+    if ((in == NULL) || (in->error))
+        return(-1);
 
-    if (in->encoder == NULL) {
-        if (in->readcallback == NULL)
-            return(0);
-        buf = in->buffer;
-    } else {
-        if (in->raw == NULL) {
-	    in->raw = xmlBufCreate();
-	}
-        buf = in->raw;
-    }
+    if (len < MINLEN)
+        len = MINLEN;
 
     /*
      * Call the read method for this I/O type.
      */
     if (in->readcallback != NULL) {
-        if (xmlBufGrow(buf, len + 1) < 0) {
+        xmlBufPtr buf;
+
+        if (in->encoder == NULL) {
+            buf = in->buffer;
+        } else {
+            /*
+             * Some users only set 'encoder' and expect us to create
+             * the raw buffer lazily.
+             */
+            if (in->raw == NULL) {
+                in->raw = xmlBufCreate(XML_IO_BUFFER_SIZE);
+                if (in->raw == NULL) {
+                    in->error = XML_ERR_NO_MEMORY;
+                    return(-1);
+                }
+            }
+            buf = in->raw;
+        }
+
+        if (xmlBufGrow(buf, len) < 0) {
             in->error = XML_ERR_NO_MEMORY;
             return(-1);
         }
@@ -2212,19 +2205,22 @@ xmlParserInputBufferGrow(xmlParserInputBufferPtr in, int len) {
     }
 
     /*
-     * try to establish compressed status of input if not done already
+     * Handle encoding.
      */
-    if (in->compressed == -1) {
-#ifdef LIBXML_LZMA_ENABLED
-	if (in->readcallback == xmlXzfileRead)
-            in->compressed = __libxml2_xzcompressed(in->context);
-#endif
-    }
-
     if (in->encoder != NULL) {
-	res = xmlCharEncInput(in);
-	if (res < 0)
+        size_t sizeOut;
+
+        /*
+         * Don't convert whole buffer when reading from memory.
+         */
+        if (in->readcallback == NULL)
+            sizeOut = len;
+        else
+            sizeOut = SIZE_MAX;
+
+	if (xmlCharEncInput(in, &sizeOut) < 0)
 	    return(-1);
+        res = sizeOut;
     }
     return(res);
 }
@@ -2234,9 +2230,9 @@ xmlParserInputBufferGrow(xmlParserInputBufferPtr in, int len) {
  * @in:  a buffered parser input
  * @len:  indicative value of the amount of chars to read
  *
- * Refresh the content of the input buffer, the old data are considered
- * consumed
- * This routine handle the I18N transcoding to internal UTF-8
+ * DEPRECATED: Internal function, don't use.
+ *
+ * Same as xmlParserInputBufferGrow.
  *
  * Returns the number of chars read and stored in the buffer, or -1
  *         in case of error.
@@ -2251,7 +2247,7 @@ xmlParserInputBufferRead(xmlParserInputBufferPtr in, int len) {
  * xmlOutputBufferWrite:
  * @out:  a buffered parser output
  * @len:  the size in bytes of the array.
- * @buf:  an char array
+ * @data:  an char array
  *
  * Write the content of the array in the output I/O buffer
  * This routine handle the I18N transcoding from internal UTF-8
@@ -2262,20 +2258,28 @@ xmlParserInputBufferRead(xmlParserInputBufferPtr in, int len) {
  *         in case of error.
  */
 int
-xmlOutputBufferWrite(xmlOutputBufferPtr out, int len, const char *buf) {
-    int nbchars = 0; /* number of chars to output to I/O */
-    int ret;         /* return from function call */
-    int written = 0; /* number of char written to I/O so far */
-    int chunk;       /* number of byte current processed from buf */
+xmlOutputBufferWrite(xmlOutputBufferPtr out, int len, const char *data) {
+    size_t written = 0;
 
-    if ((out == NULL) || (out->error)) return(-1);
-    if (len < 0) return(0);
-    if (out->error) return(-1);
+    if ((out == NULL) || (out->error))
+        return(-1);
+    if (len < 0)
+        return(0);
 
-    do {
+    while (len > 0) {
+        xmlBufPtr buf = NULL;
+        int chunk;
+        int ret;
+
 	chunk = len;
-	if (chunk > 4 * MINLEN)
-	    chunk = 4 * MINLEN;
+	if (chunk > 256 * 1024)
+	    chunk = 256 * 1024;
+
+        ret = xmlBufAdd(out->buffer, (const xmlChar *) data, chunk);
+        if (ret != 0) {
+            out->error = XML_ERR_NO_MEMORY;
+            return(-1);
+        }
 
 	/*
 	 * first handle encoding stuff.
@@ -2285,137 +2289,71 @@ xmlOutputBufferWrite(xmlOutputBufferPtr out, int len, const char *buf) {
 	     * Store the data in the incoming raw buffer
 	     */
 	    if (out->conv == NULL) {
-		out->conv = xmlBufCreate();
+		out->conv = xmlBufCreate(MINLEN);
                 if (out->conv == NULL) {
                     out->error = XML_ERR_NO_MEMORY;
                     return(-1);
                 }
 	    }
-	    ret = xmlBufAdd(out->buffer, (const xmlChar *) buf, chunk);
-	    if (ret != 0) {
-                out->error = XML_ERR_NO_MEMORY;
-	        return(-1);
-            }
-
-	    if ((xmlBufUse(out->buffer) < MINLEN) && (chunk == len))
-		goto done;
 
 	    /*
 	     * convert as much as possible to the parser reading buffer.
 	     */
-	    ret = xmlCharEncOutput(out, 0);
-	    if (ret < 0)
-		return(-1);
-            if (out->writecallback)
-	        nbchars = xmlBufUse(out->conv);
-            else
-                nbchars = ret >= 0 ? ret : 0;
-	} else {
-	    ret = xmlBufAdd(out->buffer, (const xmlChar *) buf, chunk);
-	    if (ret != 0) {
-                out->error = XML_ERR_NO_MEMORY;
-	        return(-1);
+            if (xmlBufUse(out->buffer) < 256) {
+                ret = 0;
+            } else {
+                ret = xmlCharEncOutput(out, 0);
+                if (ret < 0)
+                    return(-1);
             }
+
             if (out->writecallback)
-	        nbchars = xmlBufUse(out->buffer);
+                buf = out->conv;
             else
-                nbchars = chunk;
+                written += ret;
+	} else {
+            if (out->writecallback)
+	        buf = out->buffer;
+            else
+                written += chunk;
 	}
-	buf += chunk;
+	data += chunk;
 	len -= chunk;
 
-	if (out->writecallback) {
-            if ((nbchars < MINLEN) && (len <= 0))
-                goto done;
-
+	if ((buf != NULL) && (out->writecallback)) {
 	    /*
 	     * second write the stuff to the I/O channel
 	     */
-	    if (out->encoder != NULL) {
+	    while (1) {
+                size_t nbchars = xmlBufUse(buf);
+
+                if (nbchars < MINLEN)
+                    break;
+                if (nbchars > 256 * 1024)
+                    nbchars = 256 * 1024;
+
 		ret = out->writecallback(out->context,
-                           (const char *)xmlBufContent(out->conv), nbchars);
-		if (ret >= 0)
-		    xmlBufShrink(out->conv, ret);
-	    } else {
-		ret = out->writecallback(out->context,
-                           (const char *)xmlBufContent(out->buffer), nbchars);
-		if (ret >= 0)
-		    xmlBufShrink(out->buffer, ret);
-	    }
-	    if (ret < 0) {
-		out->error = (ret == -1) ? XML_IO_WRITE : -ret;
-		return(ret);
-	    }
-            if (out->written > INT_MAX - ret)
-                out->written = INT_MAX;
-            else
-                out->written += ret;
+                           (const char *)xmlBufContent(buf), nbchars);
+                if (ret < 0) {
+                    out->error = (ret == -1) ? XML_IO_WRITE : -ret;
+                    return(-1);
+                }
+                if ((ret == 0) || ((size_t) ret > nbchars)) {
+                    out->error = XML_ERR_INTERNAL_ERROR;
+                    return(-1);
+                }
+
+		xmlBufShrink(buf, ret);
+	        written += ret;
+                if (out->written > INT_MAX - ret)
+                    out->written = INT_MAX;
+                else
+                    out->written += ret;
+            }
 	}
-	written += nbchars;
-    } while (len > 0);
-
-done:
-    return(written);
-}
-
-/**
- * xmlEscapeContent:
- * @out:  a pointer to an array of bytes to store the result
- * @outlen:  the length of @out
- * @in:  a pointer to an array of unescaped UTF-8 bytes
- * @inlen:  the length of @in
- *
- * Take a block of UTF-8 chars in and escape them.
- * Returns 0 if success, or -1 otherwise
- * The value of @inlen after return is the number of octets consumed
- *     if the return value is positive, else unpredictable.
- * The value of @outlen after return is the number of octets consumed.
- */
-static int
-xmlEscapeContent(unsigned char* out, int *outlen,
-                 const xmlChar* in, int *inlen) {
-    unsigned char* outstart = out;
-    const unsigned char* base = in;
-    unsigned char* outend = out + *outlen;
-    const unsigned char* inend;
-
-    inend = in + (*inlen);
-
-    while ((in < inend) && (out < outend)) {
-	if (*in == '<') {
-	    if (outend - out < 4) break;
-	    *out++ = '&';
-	    *out++ = 'l';
-	    *out++ = 't';
-	    *out++ = ';';
-	} else if (*in == '>') {
-	    if (outend - out < 4) break;
-	    *out++ = '&';
-	    *out++ = 'g';
-	    *out++ = 't';
-	    *out++ = ';';
-	} else if (*in == '&') {
-	    if (outend - out < 5) break;
-	    *out++ = '&';
-	    *out++ = 'a';
-	    *out++ = 'm';
-	    *out++ = 'p';
-	    *out++ = ';';
-	} else if (*in == '\r') {
-	    if (outend - out < 5) break;
-	    *out++ = '&';
-	    *out++ = '#';
-	    *out++ = '1';
-	    *out++ = '3';
-	    *out++ = ';';
-	} else {
-	    *out++ = *in;
-	}
-	++in;
     }
-    *outlen = out - outstart;
-    *inlen = in - base;
-    return(0);
+
+    return(written <= INT_MAX ? written : INT_MAX);
 }
 
 /**
@@ -2436,130 +2374,61 @@ xmlEscapeContent(unsigned char* out, int *outlen,
 int
 xmlOutputBufferWriteEscape(xmlOutputBufferPtr out, const xmlChar *str,
                            xmlCharEncodingOutputFunc escaping) {
-    int nbchars = 0; /* number of chars to output to I/O */
-    int ret;         /* return from function call */
-    int written = 0; /* number of char written to I/O so far */
-    int oldwritten=0;/* loop guard */
-    int chunk;       /* number of byte currently processed from str */
-    int len;         /* number of bytes in str */
-    int cons;        /* byte from str consumed */
+    int ret;
+    int written = 0;
+    size_t len;
 
-    if ((out == NULL) || (out->error) || (str == NULL) ||
-        (out->buffer == NULL))
+    if ((out == NULL) || (out->error) || (str == NULL))
         return(-1);
-    len = strlen((const char *)str);
-    if (len < 0) return(0);
-    if (out->error) return(-1);
-    if (escaping == NULL) escaping = xmlEscapeContent;
 
-    do {
-        oldwritten = written;
+    len = strlen((const char *) str);
+    if (len >= INT_MAX) {
+        out->error = XML_ERR_RESOURCE_LIMIT;
+        return(-1);
+    }
 
-        /*
-	 * how many bytes to consume and how many bytes to store.
-	 */
-	cons = len;
-	chunk = xmlBufAvail(out->buffer);
+    if (escaping == NULL) {
+        char *escaped = (char *) xmlEscapeText(str, XML_ESCAPE_ALLOW_INVALID);
 
-        /*
-	 * make sure we have enough room to save first, if this is
-	 * not the case force a flush, but make sure we stay in the loop
-	 */
-	if (chunk < 40) {
-	    if (xmlBufGrow(out->buffer, 100) < 0) {
-                out->error = XML_ERR_NO_MEMORY;
-	        return(-1);
-            }
-            oldwritten = -1;
-	    continue;
-	}
+        if (escaped == NULL) {
+            out->error = XML_ERR_NO_MEMORY;
+            return(-1);
+        }
 
-	/*
-	 * first handle encoding stuff.
-	 */
-	if (out->encoder != NULL) {
-	    /*
-	     * Store the data in the incoming raw buffer
-	     */
-	    if (out->conv == NULL) {
-		out->conv = xmlBufCreate();
-                if (out->conv == NULL) {
-                    out->error = XML_ERR_NO_MEMORY;
-                    return(-1);
-                }
-	    }
-	    ret = escaping(xmlBufEnd(out->buffer) ,
-	                   &chunk, str, &cons);
-            if (ret < 0) {
-                out->error = XML_ERR_NO_MEMORY;
-                return(-1);
-            }
-            xmlBufAddLen(out->buffer, chunk);
+        len = strlen(escaped);
+        if (len >= INT_MAX) {
+            out->error = XML_ERR_RESOURCE_LIMIT;
+            return(-1);
+        }
 
-	    if ((xmlBufUse(out->buffer) < MINLEN) && (cons == len))
-		goto done;
+        ret = xmlOutputBufferWrite(out, len, escaped);
 
-	    /*
-	     * convert as much as possible to the output buffer.
-	     */
-	    ret = xmlCharEncOutput(out, 0);
-	    if (ret < 0)
-		return(-1);
-            if (out->writecallback)
-	        nbchars = xmlBufUse(out->conv);
-            else
-                nbchars = ret >= 0 ? ret : 0;
-	} else {
-	    ret = escaping(xmlBufEnd(out->buffer), &chunk, str, &cons);
-            if (ret < 0) {
-                out->error = XML_ERR_NO_MEMORY;
-                return(-1);
-            }
-            xmlBufAddLen(out->buffer, chunk);
-            if (out->writecallback)
-	        nbchars = xmlBufUse(out->buffer);
-            else
-                nbchars = chunk;
-	}
-	str += cons;
-	len -= cons;
+        xmlFree(escaped);
+        return(ret);
+    }
 
-	if (out->writecallback) {
-            if ((nbchars < MINLEN) && (len <= 0))
-                goto done;
+    while (len > 0) {
+        xmlChar buf[1024];
+        int c_out;
+        int c_in;
 
-	    /*
-	     * second write the stuff to the I/O channel
-	     */
-	    if (out->encoder != NULL) {
-		ret = out->writecallback(out->context,
-                           (const char *)xmlBufContent(out->conv), nbchars);
-		if (ret >= 0)
-		    xmlBufShrink(out->conv, ret);
-	    } else {
-		ret = out->writecallback(out->context,
-                           (const char *)xmlBufContent(out->buffer), nbchars);
-		if (ret >= 0)
-		    xmlBufShrink(out->buffer, ret);
-	    }
-	    if (ret < 0) {
-		out->error = (ret == -1) ? XML_IO_WRITE : -ret;
-		return(-1);
-	    }
-            if (out->written > INT_MAX - ret)
-                out->written = INT_MAX;
-            else
-                out->written += ret;
-	} else if (xmlBufAvail(out->buffer) < MINLEN) {
-            if (xmlBufGrow(out->buffer, MINLEN) < 0) {
-                out->error = XML_ERR_NO_MEMORY;
-                return(-1);
-            }
-	}
-	written += nbchars;
-    } while ((len > 0) && (oldwritten != written));
+	c_out = 1024;
+	c_in = len;
 
-done:
+        ret = escaping(buf, &c_out, str, &c_in);
+        if (ret < 0) {
+            out->error = XML_ERR_NO_MEMORY;
+            return(-1);
+        }
+        str += c_in;
+        len -= c_in;
+
+        ret = xmlOutputBufferWrite(out, c_out, (char *) buf);
+        if (ret < 0)
+            return(ret);
+        written += ret;
+    }
+
     return(written);
 }
 
@@ -2731,10 +2600,7 @@ xmlParserGetDirectory(const char *filename) {
 	else *cur = 0;
 	ret = xmlMemStrdup(dir);
     } else {
-        if (getcwd(dir, 1024) != NULL) {
-	    dir[1023] = 0;
-	    ret = xmlMemStrdup(dir);
-	}
+        ret = xmlMemStrdup(".");
     }
     return(ret);
 #undef IS_XMLPGD_SEP

@@ -71,11 +71,11 @@ xmlCheckVersion(int version) {
     xmlInitParser();
 
     if ((myversion / 10000) != (version / 10000)) {
-	fprintf(stderr,
+	xmlPrintErrorMessage(
 		"Fatal: program compiled against libxml %d using libxml %d\n",
 		(version / 10000), (myversion / 10000));
     } else if ((myversion / 100) < (version / 100)) {
-	fprintf(stderr,
+	xmlPrintErrorMessage(
 		"Warning: program compiled against libxml %d using older %d\n",
 		(version / 100), (myversion / 100));
     }
@@ -652,35 +652,27 @@ void
 xmlParserShrink(xmlParserCtxtPtr ctxt) {
     xmlParserInputPtr in = ctxt->input;
     xmlParserInputBufferPtr buf = in->buf;
-    size_t used;
+    size_t used, res;
 
     if (buf == NULL)
         return;
-    /* Don't shrink pull parser memory buffers. */
-    if ((!PARSER_PROGRESSIVE(ctxt)) &&
-        (buf->encoder == NULL) &&
-        (buf->readcallback == NULL))
-        return;
 
     used = in->cur - in->base;
-    /*
-     * Do not shrink on large buffers whose only a tiny fraction
-     * was consumed
-     */
-    if (used > INPUT_CHUNK) {
-	size_t res = xmlBufShrink(buf->buffer, used - LINE_LEN);
 
-	if (res > 0) {
+    if (used > LINE_LEN) {
+        res = xmlBufShrink(buf->buffer, used - LINE_LEN);
+
+        if (res > 0) {
             used -= res;
             if ((res > ULONG_MAX) ||
                 (in->consumed > ULONG_MAX - (unsigned long)res))
                 in->consumed = ULONG_MAX;
             else
                 in->consumed += res;
-	}
-    }
+        }
 
-    xmlBufUpdateInput(buf->buffer, in, used);
+        xmlBufUpdateInput(buf->buffer, in, used);
+    }
 }
 
 /**
@@ -703,11 +695,8 @@ xmlParserInputShrink(xmlParserInputPtr in) {
     if (in->buf->buffer == NULL) return;
 
     used = in->cur - in->base;
-    /*
-     * Do not shrink on large buffers whose only a tiny fraction
-     * was consumed
-     */
-    if (used > INPUT_CHUNK) {
+
+    if (used > LINE_LEN) {
 	ret = xmlBufShrink(in->buf->buffer, used - LINE_LEN);
 	if (ret > 0) {
             used -= ret;
@@ -717,22 +706,9 @@ xmlParserInputShrink(xmlParserInputPtr in) {
             else
                 in->consumed += ret;
 	}
-    }
 
-    if (xmlBufUse(in->buf->buffer) <= INPUT_CHUNK) {
-        xmlParserInputBufferRead(in->buf, 2 * INPUT_CHUNK);
+        xmlBufUpdateInput(in->buf->buffer, in, used);
     }
-
-    in->base = xmlBufContent(in->buf->buffer);
-    if (in->base == NULL) {
-        /* TODO: raise error */
-        in->base = BAD_CAST "";
-        in->cur = in->base;
-        in->end = in->base;
-        return;
-    }
-    in->cur = in->base + used;
-    in->end = xmlBufEnd(in->buf->buffer);
 }
 
 /************************************************************************
@@ -1041,8 +1017,7 @@ xmlCopyCharMultiByte(xmlChar *out, int val) {
 	else if (val < 0x110000)  { *out++= (val >> 18) | 0xF0;  bits=  12; }
 	else {
 #ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
-            fprintf(stderr, "xmlCopyCharMultiByte: codepoint out of range\n");
-            abort();
+            xmlAbort("xmlCopyCharMultiByte: codepoint out of range\n");
 #endif
 	    return(0);
 	}
@@ -1298,7 +1273,6 @@ xmlInputSetEncodingHandler(xmlParserInputPtr input,
                            xmlCharEncodingHandlerPtr handler) {
     xmlParserInputBufferPtr in;
     xmlBufPtr buf;
-    int nbchars;
     int code = XML_ERR_OK;
 
     if ((input == NULL) || (input->buf == NULL)) {
@@ -1336,7 +1310,7 @@ xmlInputSetEncodingHandler(xmlParserInputPtr input,
         return(XML_ERR_OK);
     }
 
-    buf = xmlBufCreate();
+    buf = xmlBufCreate(XML_IO_BUFFER_SIZE);
     if (buf == NULL) {
         xmlCharEncCloseFunc(handler);
         return(XML_ERR_NO_MEMORY);
@@ -1351,6 +1325,8 @@ xmlInputSetEncodingHandler(xmlParserInputPtr input,
      */
     if (input->end > input->base) {
         size_t processed;
+        size_t nbchars;
+        int res;
 
         /*
          * Shrink the current input buffer.
@@ -1361,8 +1337,9 @@ xmlInputSetEncodingHandler(xmlParserInputPtr input,
         input->consumed += processed;
         in->rawconsumed = processed;
 
-        nbchars = xmlCharEncInput(in);
-        if (nbchars < 0)
+        nbchars = 4000 /* MINLEN */;
+        res = xmlCharEncInput(in, &nbchars);
+        if (res < 0)
             code = in->error;
     }
 

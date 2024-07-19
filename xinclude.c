@@ -1410,9 +1410,14 @@ xmlXIncludeLoadTxt(xmlXIncludeCtxtPtr ctxt, xmlXIncludeRefPtr ref) {
     inputStream = xmlLoadResource(pctxt, (const char*) url, NULL,
                                   XML_RESOURCE_XINCLUDE_TEXT);
     if (inputStream == NULL) {
+        /*
+         * ENOENT only produces a warning which isn't reflected in errNo.
+         */
         if (pctxt->errNo == XML_ERR_NO_MEMORY)
             xmlXIncludeErrMemory(ctxt);
-        else
+        else if ((pctxt->errNo != XML_ERR_OK) &&
+                 (pctxt->errNo != XML_IO_ENOENT) &&
+                 (pctxt->errNo != XML_IO_UNKNOWN))
             xmlXIncludeErr(ctxt, NULL, pctxt->errNo, "load error", NULL);
 	goto error;
     }
@@ -1445,7 +1450,7 @@ xmlXIncludeLoadTxt(xmlXIncludeCtxtPtr ctxt, xmlXIncludeRefPtr ref) {
     }
 
     content = xmlBufContent(buf->buffer);
-    len = xmlBufLength(buf->buffer);
+    len = xmlBufUse(buf->buffer);
     for (i = 0; i < len;) {
         int cur;
         int l;
@@ -1817,11 +1822,6 @@ xmlXIncludeTestNode(xmlXIncludeCtxtPtr ctxt, xmlNodePtr node) {
         (xmlStrEqual(node->ns->href, XINCLUDE_OLD_NS))) {
 	if (xmlStrEqual(node->ns->href, XINCLUDE_OLD_NS)) {
 	    if (ctxt->legacy == 0) {
-#if 0 /* wait for the XML Core Working Group to get something stable ! */
-		xmlXIncludeWarn(ctxt, node, XML_XINCLUDE_DEPRECATED_NS,
-	               "Deprecated XInclude namespace found, use %s",
-		                XINCLUDE_NS);
-#endif
 	        ctxt->legacy = 1;
 	    }
 	}

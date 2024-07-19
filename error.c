@@ -17,6 +17,7 @@
 #include <libxml/xmlmemory.h>
 
 #include "private/error.h"
+#include "private/globals.h"
 #include "private/string.h"
 
 /************************************************************************
@@ -635,7 +636,7 @@ void
 xmlRaiseMemoryError(xmlStructuredErrorFunc schannel, xmlGenericErrorFunc channel,
                     void *data, int domain, xmlError *error)
 {
-    xmlError *lastError = &xmlLastError;
+    xmlError *lastError = xmlGetLastErrorInternal();
 
     xmlResetLastError();
     lastError->domain = domain;
@@ -694,16 +695,14 @@ xmlVRaiseError(xmlStructuredErrorFunc schannel,
 {
     xmlParserCtxtPtr ctxt = NULL;
     /* xmlLastError is a macro retrieving the per-thread global. */
-    xmlErrorPtr lastError = &xmlLastError;
+    xmlErrorPtr lastError = xmlGetLastErrorInternal();
     xmlErrorPtr to = lastError;
 
     if (code == XML_ERR_OK)
         return(0);
 #ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
-    if (code == XML_ERR_INTERNAL_ERROR) {
-        fprintf(stderr, "Unexpected error: %d\n", code);
-        abort();
-    }
+    if (code == XML_ERR_INTERNAL_ERROR)
+        xmlAbort("Unexpected error: %d\n", code);
 #endif
     if ((xmlGetWarningsDefaultValue == 0) && (level == XML_ERR_WARNING))
         return(0);
@@ -921,9 +920,11 @@ xmlParserValidityWarning(void *ctx, const char *msg ATTRIBUTE_UNUSED, ...)
 const xmlError *
 xmlGetLastError(void)
 {
-    if (xmlLastError.code == XML_ERR_OK)
-        return (NULL);
-    return (&xmlLastError);
+    const xmlError *error = xmlGetLastErrorInternal();
+
+    if (error->code == XML_ERR_OK)
+        return(NULL);
+    return(error);
 }
 
 /**
@@ -962,9 +963,10 @@ xmlResetError(xmlErrorPtr err)
 void
 xmlResetLastError(void)
 {
-    if (xmlLastError.code == XML_ERR_OK)
-        return;
-    xmlResetError(&xmlLastError);
+    xmlError *error = xmlGetLastErrorInternal();
+
+    if (error->code != XML_ERR_OK)
+        xmlResetError(error);
 }
 
 /**
@@ -1325,4 +1327,29 @@ xmlErrString(xmlParserErrors code) {
     }
 
     return(errmsg);
+}
+
+void
+xmlVPrintErrorMessage(const char *fmt, va_list ap) {
+    vfprintf(stderr, fmt, ap);
+}
+
+void
+xmlPrintErrorMessage(const char *fmt, ...) {
+    va_list ap;
+
+    va_start(ap, fmt);
+    xmlVPrintErrorMessage(fmt, ap);
+    va_end(ap);
+}
+
+void
+xmlAbort(const char *fmt, ...) {
+    va_list ap;
+
+    va_start(ap, fmt);
+    xmlVPrintErrorMessage(fmt, ap);
+    va_end(ap);
+
+    abort();
 }

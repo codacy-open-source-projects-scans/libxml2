@@ -1066,7 +1066,6 @@ XML_DEPRECATED
 XMLPUBFUN int
 		xmlParserInputRead	(xmlParserInputPtr in,
 					 int len);
-XML_DEPRECATED
 XMLPUBFUN int
 		xmlParserInputGrow	(xmlParserInputPtr in,
 					 int len);
@@ -1347,9 +1346,7 @@ XMLPUBFUN xmlParserInputPtr
 					 const char *ID,
 					 xmlParserCtxtPtr ctxt);
 
-/*
- * Index lookup, actually implemented in the encoding module
- */
+XML_DEPRECATED
 XMLPUBFUN long
 		xmlByteConsumed		(xmlParserCtxtPtr ctxt);
 
