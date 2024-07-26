@@ -298,25 +298,18 @@ dnl
 dnl Checks for header files.
 dnl
 AC_CHECK_HEADERS([stdint.h])
-AC_CHECK_HEADERS([sys/mman.h sys/random.h])
-AC_CHECK_HEADERS([dl.h dlfcn.h])
 AC_CHECK_HEADERS([glob.h])
 AM_CONDITIONAL(WITH_GLOB, test "$ac_cv_header_glob_h" = "yes")
 
 dnl Checks for library functions.
-AC_CHECK_FUNCS([getentropy mmap munmap])
-
-AH_VERBATIM([HAVE_MUNMAP_AFTER],[/* mmap() is no good without munmap() */
-#if defined(HAVE_MMAP) && !defined(HAVE_MUNMAP)
-#  undef /**/ HAVE_MMAP
-#endif])
+AC_CHECK_DECLS([mmap], [], [], [#include <sys/mman.h>])
+AC_CHECK_DECLS([getentropy], [], [], [#include <sys/random.h>])
 
 dnl
 dnl Checks for inet libraries
 dnl
 if test "$with_http" = "yes"; then
-    AC_CHECK_HEADERS([sys/socket.h netinet/in.h arpa/inet.h netdb.h])
-    AC_CHECK_HEADERS([sys/select.h poll.h])
+    AC_CHECK_HEADERS([poll.h])
 
     case "$host" in
         *-*-mingw*)
@@ -718,9 +711,7 @@ else
                     WITH_THREADS="1"
                     if test "$ac_cv_search_pthread_create" != "none required"; then
                         THREAD_LIBS=$ac_cv_search_pthread_create
-                    fi
-                    AC_DEFINE([HAVE_PTHREAD_H], [],
-                              [Define if <pthread.h> is there])]))
+                    fi]))
             LIBS=$_libs
             ;;
     esac

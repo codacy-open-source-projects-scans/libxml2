@@ -40,6 +40,7 @@ option(LIBXML2_WITH_PATTERN "Add the xmlPattern selection interface" ON)
 option(LIBXML2_WITH_PROGRAMS "Build programs" ON)
 option(LIBXML2_WITH_PUSH "Add the PUSH parser interfaces" ON)
 option(LIBXML2_WITH_PYTHON "Build Python bindings" ON)
+option(LIBXML2_WITH_READLINE "readline support for xmllint shell" OFF)
 option(LIBXML2_WITH_REGEXPS "Add Regular Expressions support" ON)
 option(LIBXML2_WITH_SAX1 "Add the older SAX1 interface" ON)
 option(LIBXML2_WITH_TESTS "Build tests" ON)
@@ -53,6 +54,9 @@ option(LIBXML2_WITH_ZLIB "Use libz" OFF)
 cmake_dependent_option(
     LIBXML2_WITH_C14N "Add the Canonicalization support" ON
     "LIBXML2_WITH_OUTPUT;LIBXML2_WITH_XPATH" OFF)
+cmake_dependent_option(
+    LIBXML2_WITH_HISTORY "history support for xmllint shell" OFF
+    "LIBXML2_WITH_READLINE" OFF)
 cmake_dependent_option(
     LIBXML2_WITH_READER "Add the xmlReader parsing interface" ON
     "LIBXML2_WITH_PUSH" OFF)
@@ -136,25 +140,20 @@ check_c_source_compiles("
     f(void) {}
     int main(void) { return 0; }
 " HAVE_FUNC_ATTRIBUTE_DESTRUCTOR)
-check_include_files(arpa/inet.h HAVE_ARPA_INET_H)
-check_function_exists(class HAVE_CLASS)
-check_include_files(dlfcn.h HAVE_DLFCN_H)
-check_library_exists(dl dlopen "" HAVE_DLOPEN)
-check_include_files(dl.h HAVE_DL_H)
-check_function_exists(getentropy HAVE_GETENTROPY)
-check_library_exists(history append_history "" HAVE_LIBHISTORY)
-check_library_exists(readline readline "" HAVE_LIBREADLINE)
-check_function_exists(mmap HAVE_MMAP)
-check_function_exists(munmap HAVE_MUNMAP)
-check_include_files(netdb.h HAVE_NETDB_H)
-check_include_files(netinet/in.h HAVE_NETINET_IN_H)
-check_include_files(poll.h HAVE_POLL_H)
-check_library_exists(dld shl_load "" HAVE_SHLLOAD)
+check_symbol_exists(getentropy "sys/random.h" HAVE_DECL_GETENTROPY)
+check_symbol_exists(mmap "sys/mman.h" HAVE_DECL_MMAP)
 check_include_files(stdint.h HAVE_STDINT_H)
-check_include_files(sys/mman.h HAVE_SYS_MMAN_H)
-check_include_files(sys/random.h HAVE_SYS_RANDOM_H)
-check_include_files(sys/select.h HAVE_SYS_SELECT_H)
-check_include_files(sys/socket.h HAVE_SYS_SOCKET_H)
+
+if(LIBXML2_WITH_READLINE)
+    check_library_exists(readline readline "" HAVE_LIBREADLINE)
+    if (LIBXML2_WITH_HISTORY)
+        check_library_exists(history append_history "" HAVE_LIBHISTORY)
+    endif()
+endif()
+
+if(LIBXML2_WITH_HTTP)
+    check_include_files(poll.h HAVE_POLL_H)
+endif()
 
 if(LIBXML2_WITH_TLS)
     check_c_source_compiles(
@@ -294,12 +293,6 @@ add_library(LibXml2::LibXml2 ALIAS LibXml2)
 
 target_compile_definitions(LibXml2 PRIVATE SYSCONFDIR="${CMAKE_INSTALL_FULL_SYSCONFDIR}")
 
-if(LIBXML2_WITH_THREADS)
-    if(NOT WIN32)
-        check_include_files(pthread.h HAVE_PTHREAD_H)
-    endif()
-endif()
-
 target_include_directories(
     LibXml2
     PUBLIC
@@ -309,14 +302,16 @@ target_include_directories(
 )
 
 if(LIBXML2_WITH_MODULES)
+    check_library_exists(dl dlopen "" HAVE_DLOPEN)
     if(HAVE_DLOPEN)
         target_link_libraries(LibXml2 PRIVATE dl)
         set(MODULE_LIBS "-ldl")
-    endif()
-
-    if(HAVE_SHLLOAD)
-        target_link_libraries(LibXml2 PRIVATE dld)
-        set(MODULE_LIBS "-ldld")
+    else()
+        check_library_exists(dld shl_load "" HAVE_SHLLOAD)
+        if(HAVE_SHLLOAD)
+            target_link_libraries(LibXml2 PRIVATE dld)
+            set(MODULE_LIBS "-ldld")
+        endif()
     endif()
 endif()
 

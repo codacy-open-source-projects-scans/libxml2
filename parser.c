@@ -973,6 +973,11 @@ xmlCtxtInitializeLate(xmlParserCtxtPtr ctxt) {
 		(ctxt->str_xml_ns == NULL)) {
         xmlErrMemory(ctxt);
     }
+
+    xmlDictSetLimit(ctxt->dict,
+                    (ctxt->options & XML_PARSE_HUGE) ?
+                        0 :
+                        XML_MAX_DICTIONARY_LIMIT);
 }
 
 typedef struct {
@@ -7375,6 +7380,14 @@ xmlParseReference(xmlParserCtxtPtr ctxt) {
     }
 
     /*
+     * Some users try to parse entities on their own and used to set
+     * the renamed "checked" member. Fix the flags to cover this
+     * case.
+     */
+    if (((ent->flags & XML_ENT_PARSED) == 0) && (ent->children != NULL))
+        ent->flags |= XML_ENT_PARSED;
+
+    /*
      * The first reference to the entity trigger a parsing phase
      * where the ent->children is filled with the result from
      * the parsing.
@@ -11612,7 +11625,7 @@ xmlParseChunk(xmlParserCtxtPtr ctxt, const char *chunk, int size,
         xmlHaltParser(ctxt);
     }
 
-    if ((ctxt->errNo != XML_ERR_OK) && (ctxt->disableSAX == 1))
+    if ((ctxt->errNo != XML_ERR_OK) && (ctxt->disableSAX != 0))
         return(ctxt->errNo);
 
     if (end_in_lf == 1) {

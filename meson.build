@@ -233,40 +233,26 @@ config_h.set_quoted('LOCALEDIR', dir_locale)
 
 # header files
 xml_check_headers = [
-    'stdint.h',
-    'sys/mman.h',
-    'sys/random.h',
-    'dl.h',
-    'dlfcn.h',
-    'glob.h',
-
-    # http
-    'sys/socket.h',
-    'netinet/in.h',
-    'arpa/inet.h',
-    'netdb.h',
-    'sys/select.h',
-    'poll.h',
+    [ 'stdint.h', true ],
+    [ 'glob.h', true ],
+    [ 'poll.h', want_http ],
 ]
 
 foreach header : xml_check_headers
-    if cc.has_header(header)
-        config_h.set10('HAVE_' + header.underscorify().to_upper(), true)
+    if header[1] and cc.has_header(header[0])
+        config_h.set10('HAVE_' + header[0].underscorify().to_upper(), true)
     endif
 endforeach
 
 # library functions
 xml_check_functions = [
     # fct             | header
-    ['getentropy', 'sys/random.h'],
-    ['mmap', 'sys/mman.h'],
-    ['munmap', 'sys/mman.h'],
+    ['getentropy', 'sys/random.h', 'HAVE_DECL_GETENTROPY'],
+    ['mmap', 'sys/mman.h', 'HAVE_DECL_MMAP'],
 ]
 
 foreach function : xml_check_functions
-    if cc.has_header_symbol(function[1], function[0])
-        config_h.set10('HAVE_' + function[0].to_upper(), true)
-    endif
+    config_h.set10(function[2], cc.has_header_symbol(function[1], function[0]))
 endforeach
 
 # library
@@ -324,7 +310,6 @@ endif
 ### threads
 if want_threads
     threads_dep = dependency('threads')
-    config_h.set10(sys_windows ? 'HAVE_WIN32_THREADS' : 'HAVE_PTHREAD_H', true)
     xml_deps += threads_dep
 else
     threads_dep = dependency('', required: false)
