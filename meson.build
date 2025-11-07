@@ -3,7 +3,11 @@ project(
     'c',
     version: files('VERSION'),
     license: 'MIT',
-    default_options: ['buildtype=debug', 'warning_level=3'],
+    default_options: [
+        'c_std=c11,c99,c89',
+        'buildtype=debug',
+        'warning_level=3',
+    ],
     meson_version: '>= 0.61',
 )
 
@@ -24,18 +28,17 @@ dir_bin = dir_prefix / get_option('bindir')
 dir_include = dir_prefix / get_option('includedir')
 dir_pkginclude = dir_include / meson.project_name()
 dir_lib = dir_prefix / get_option('libdir')
+dir_man = dir_prefix / get_option('mandir')
 dir_data = dir_prefix / get_option('datadir')
-dir_doc = dir_data / 'doc' / 'libxml2'
+dir_doc = dir_data / 'doc' / meson.project_name()
 dir_locale = dir_prefix / get_option('localedir')
 
 # host
 
 host_os = host_machine.system()
 
-cygwin = 'cygwin'
-windows = 'windows'
-sys_cygwin = cygwin.contains(host_os)
-sys_windows = windows.contains(host_os)
+sys_cygwin = host_os == 'cygwin'
+sys_windows = host_os == 'windows'
 
 libxml2_cflags = []
 xml_cflags = ''
@@ -52,11 +55,38 @@ endif
 # binaries
 cc = meson.get_compiler('c')
 
+# global compiler flags
+
+global_args = [
+    '-D_XOPEN_SOURCE=600',
+
+    # Enabled by warning_level=3
+    # '-pedantic',
+    # '-Wall',
+    # '-Wextra',
+
+    '-Wshadow',
+    '-Wpointer-arith',
+    '-Wcast-align',
+    '-Wwrite-strings',
+    '-Wstrict-prototypes',
+    '-Wmissing-prototypes',
+    '-Wmissing-variable-declarations',
+    '-Wno-long-long',
+    '-Wno-format-extra-args',
+    '-Wno-array-bounds',
+]
+global_args = cc.get_supported_arguments(global_args)
+add_project_arguments(global_args, language: 'c')
+
 # options
 
 # disabled by default
+want_docs = get_option('docs').enabled()
+want_http = get_option('http').enabled()
 want_icu = get_option('icu').enabled()
 want_legacy = get_option('legacy').enabled()
+want_python = get_option('python').enabled()
 want_thread_alloc = get_option('thread-alloc').enabled()
 want_tls = get_option('tls').enabled()
 
@@ -79,9 +109,6 @@ want_iconv = want_minimum ? feature.enabled() : feature.allowed()
 feature = get_option('iso8859x')
 want_iso8859x = want_minimum ? feature.enabled() : feature.allowed()
 
-feature = get_option('python')
-want_python = want_minimum ? feature.enabled() : feature.allowed()
-
 feature = get_option('modules')
 want_modules = want_minimum ? feature.enabled() : feature.allowed()
 
@@ -94,13 +121,10 @@ want_threads = want_minimum ? feature.enabled() : feature.allowed()
 feature = get_option('valid')
 want_valid = want_minimum ? feature.enabled() : feature.allowed()
 
+feature = get_option('xinclude')
+want_xinclude = want_minimum ? feature.enabled() : feature.allowed()
+
 # default depends on legacy option
-
-feature = get_option('http')
-want_http = want_legacy ? feature.allowed() : feature.enabled()
-
-feature = get_option('lzma')
-want_lzma = want_legacy ? feature.allowed() : feature.enabled()
 
 feature = get_option('zlib')
 want_zlib = want_legacy ? feature.allowed() : feature.enabled()
@@ -121,6 +145,7 @@ want_pattern = not want_minimum \
 
 feature = get_option('regexps')
 want_regexps = not want_minimum \
+    or get_option('relaxng').enabled() \
     or get_option('schemas').enabled() ? \
     feature.allowed() : feature.enabled()
 
@@ -138,7 +163,6 @@ feature = get_option('xpath')
 want_xpath = not want_minimum \
     or get_option('c14n').enabled() \
     or get_option('schematron').enabled() \
-    or get_option('xinclude').enabled() \
     or get_option('xptr').enabled() ? \
     feature.allowed() : feature.enabled()
 
@@ -158,21 +182,24 @@ want_reader = want_minimum ? feature.enabled() : feature.allowed()
 feature = get_option('schemas') \
     .require(want_pattern, error_message: 'schemas requires pattern') \
     .require(want_regexps, error_message: 'schemas requires regexps')
-want_schemas = want_minimum ? feature.enabled() : feature.allowed()
+want_schemas = not want_minimum \
+    or get_option('relaxng').enabled() ? \
+    feature.allowed() : feature.enabled()
+
+feature = get_option('relaxng') \
+    .require(want_regexps, error_message: 'relaxng requires regexps') \
+    .require(want_schemas, error_message: 'relaxng requires schemas')
+want_relaxng = want_minimum ? feature.enabled() : feature.allowed()
 
 feature = get_option('schematron') \
     .require(want_pattern, error_message: 'schematron requires pattern') \
     .require(want_xpath, error_message: 'schematron requires xpath')
-want_schematron = want_minimum ? feature.enabled() : feature.allowed()
+want_schematron = want_legacy ? feature.allowed() : feature.enabled()
 
 feature = get_option('writer') \
     .require(want_output, error_message: 'writer requires output') \
     .require(want_push, error_message: 'writer requires push')
 want_writer = want_minimum ? feature.enabled() : feature.allowed()
-
-feature = get_option('xinclude') \
-    .require(want_xpath, error_message: 'xinclude requires xpath')
-want_xinclude = want_minimum ? feature.enabled() : feature.allowed()
 
 feature = get_option('xptr') \
     .require(want_xpath, error_message: 'xptr requires xpath')
@@ -221,21 +248,16 @@ endforeach
 # [X] libxml-2.0.pc.in
 # [X] libxml2-config.cmake.in
 # [X] python/setup.py.in
-# [N] xml2-config.in
+# [X] xml2-config.in
 
 ## config.h
 config_h = configuration_data()
-config_h.set_quoted('PACKAGE_NAME', meson.project_name())
-config_h.set_quoted('PACKAGE_VERSION', meson.project_version())
-config_h.set_quoted('PACKAGE_BIN_DIR', dir_bin)
-config_h.set_quoted('PACKAGE_LIB_DIR', dir_lib)
-config_h.set_quoted('PACKAGE_DATA_DIR', dir_data)
-config_h.set_quoted('LOCALEDIR', dir_locale)
+config_h.set_quoted('XML_SYSCONFDIR',
+                    get_option('prefix') / get_option('sysconfdir'))
 
 # header files
 xml_check_headers = [
     [ 'stdint.h', true ],
-    [ 'poll.h', want_http ],
 ]
 
 foreach header : xml_check_headers
@@ -289,28 +311,30 @@ if cc.has_function_attribute('destructor')
 endif
 
 ### DSO support
-if sys_cygwin == true
-    module_extension = '.dll'
-elif sys_windows == true
+if sys_cygwin or sys_windows
     module_extension = '.dll'
 else
     module_extension = '.so'
 endif
 
-if want_modules and host_machine.system() != 'windows'
+if want_modules and not sys_windows
     if meson.version().version_compare('>=0.62')
         dl_dep = dependency('dl', required: false)
     else
+        dl_dep = dependency('', required: false)
+    endif
+    if not dl_dep.found()
+        cc.has_header_symbol('dlfcn.h', 'dlopen', required: true)
         dl_dep = cc.find_library('dl', required: false)
     endif
     if dl_dep.found()
-        config_h.set10('HAVE_DLOPEN', true)
         xml_deps += dl_dep
     endif
+    config_h.set10('HAVE_DLOPEN', true)
 endif
 
 ### threads
-if want_threads
+if want_threads and not sys_windows
     threads_dep = dependency('threads')
     xml_deps += threads_dep
 else
@@ -338,44 +362,15 @@ if sys_windows == true
     xml_deps += bcrypt_dep
 endif
 
-### inet
-if want_http == true
-    if sys_windows == true
-        net_dep = cc.find_library('ws2_32', required: true)
-        xml_deps += net_dep
-    else
-        net_dep = dependency('', required: false)
-        has_in_libc = cc.has_function('gethostbyname')
-        if has_in_libc == false
-            net_dep = cc.find_library('nsl', required: true)
-            if net_dep.found()
-                has_in_nsl = cc.has_function(
-                    'gethostbyname',
-                    dependencies: net_dep,
-                    required: false,
-                )
-                if has_in_nsl == true
-                    xml_deps += net_dep
-                endif
-            endif
-        endif
-    endif
-endif
-
 ### zlib
 if want_zlib
     xml_deps += dependency('zlib')
 endif
 
-### lzma
-if want_lzma
-    xml_deps += dependency('liblzma')
-endif
-
 # icu
 if want_icu
-    icu_dep = dependency('icu-i18n', method: 'pkg-config')
-    defs = icu_dep.get_variable(pkgconfig: 'DEFS')
+    icu_dep = dependency('icu-uc')
+    defs = icu_dep.get_variable(pkgconfig: 'DEFS', default_value: '')
     if cc.has_argument(defs)
         libxml2_cflags += defs
     endif
@@ -423,15 +418,13 @@ xml_opt_src = [
     [want_debug, ['debugXML.c']],
     [want_html, ['HTMLparser.c', 'HTMLtree.c']],
     [want_http, ['nanohttp.c']],
-    [want_legacy, ['legacy.c']],
-    [want_lzma, ['xzlib.c']],
     [want_modules, ['xmlmodule.c']],
     [want_output, ['xmlsave.c']],
     [want_pattern, ['pattern.c']],
     [want_reader, ['xmlreader.c']],
-    [want_regexps, ['xmlregexp.c', 'xmlunicode.c']],
-    [want_schemas, ['relaxng.c', 'xmlschemas.c', 'xmlschemastypes.c']],
-    [want_schemas and not want_xpath, ['xpath.c']],
+    [want_regexps, ['xmlregexp.c']],
+    [want_relaxng, ['relaxng.c']],
+    [want_schemas, ['xmlschemas.c', 'xmlschemastypes.c']],
     [want_schematron, ['schematron.c']],
     [want_writer, ['xmlwriter.c']],
     [want_xinclude, ['xinclude.c']],
@@ -453,16 +446,21 @@ foreach file : xml_opt_src
     endif
 endforeach
 
-v_min_compat = 0
+xml_src_files = files(xml_src)
+v_min_compat = 14
+so_version = v_maj + v_min_compat
+age = v_min - v_min_compat
+darwin_compat = v_maj + v_min + 1
 xml_lib = library(
     'xml2',
-    files(xml_src),
+    xml_src_files,
     c_args: libxml2_cflags,
     dependencies: xml_deps,
     include_directories: config_dir,
     install: true,
-    version: meson.project_version(),
-    soversion: v_maj + v_min_compat,
+    version: f'@so_version@.@age@.@v_mic@',
+    soversion: so_version,
+    darwin_versions: [ darwin_compat, f'@darwin_compat@.@v_mic@' ],
 )
 
 dep_inc = include_directories('include')
@@ -472,9 +470,9 @@ meson.override_dependency('libxml-2.0', xml_dep)
 
 ## xmllint tool
 
-executable(
+xmllint = executable(
     'xmllint',
-    files('xmllint.c', 'shell.c'),
+    files('xmllint.c', 'shell.c', 'lintmain.c'),
     dependencies: [xml_dep, xmllint_deps],
     include_directories: config_dir,
     install: true,
@@ -482,13 +480,15 @@ executable(
 
 ## xmlcatalog tool
 
-executable(
-    'xmlcatalog',
-    files('xmlcatalog.c'),
-    dependencies: [xml_dep, xmllint_deps],
-    include_directories: config_dir,
-    install: true,
-)
+if want_catalog and want_output
+    xmlcatalog = executable(
+        'xmlcatalog',
+        files('xmlcatalog.c'),
+        dependencies: [xml_dep, xmllint_deps],
+        include_directories: config_dir,
+        install: true,
+    )
+endif
 
 ## testdso module
 
@@ -528,8 +528,31 @@ foreach check, deps : checks
     endif
 endforeach
 
+if want_output
+    sh = find_program('sh', required: false)
+
+    if sh.found()
+        if want_debug
+            test('xmllint shell', sh,
+                 args: [ 'test/scripts/test.sh', xmllint.full_path() ],
+                 workdir: meson.current_source_dir())
+        endif
+        if want_catalog
+            test('xmlcatalog shell', sh,
+                 args: [ 'test/catalogs/test.sh', xmlcatalog.full_path() ],
+                 workdir: meson.current_source_dir())
+            test('xmlcatalog shell SGML', sh,
+                 args: [ 'test/catalogs/test_sgml.sh', xmlcatalog.full_path() ],
+                 workdir: meson.current_source_dir())
+        endif
+    endif
+endif
+
 subdir('example')
-subdir('doc')
+
+if want_docs or want_python
+    subdir('doc')
+endif
 
 if want_python == true
     subdir('python')
@@ -554,19 +577,32 @@ config_cmake = configuration_data()
 config_cmake.set('LIBXML_MAJOR_VERSION', v_maj)
 config_cmake.set('LIBXML_MINOR_VERSION', v_min)
 config_cmake.set('LIBXML_MICRO_VERSION', v_mic)
+config_cmake.set('INSTALL_BINDIR', dir_bin)
+config_cmake.set('INSTALL_INCLUDEDIR', dir_include)
+config_cmake.set('INSTALL_LIBDIR', dir_lib)
 config_cmake.set('VERSION', meson.project_version())
-config_cmake.set('WITH_ICONV', want_iconv.to_int().to_string())
-config_cmake.set('WITH_ICU', want_icu.to_int().to_string())
-config_cmake.set('WITH_LZMA', want_lzma.to_int().to_string())
-config_cmake.set('WITH_MODULES', want_modules.to_int().to_string())
-config_cmake.set('WITH_THREADS', want_threads.to_int().to_string())
-config_cmake.set('WITH_ZLIB', want_zlib.to_int().to_string())
+config_cmake.set10('BUILD_SHARED_LIBS',
+                   get_option('default_library') != 'static')
+config_cmake.set10('WITH_ICONV', want_iconv)
+config_cmake.set10('WITH_ICU', want_icu)
+config_cmake.set10('WITH_MODULES', want_modules)
+config_cmake.set10('WITH_THREADS', want_threads)
+config_cmake.set10('WITH_ZLIB', want_zlib)
 config_cmake.set('XML_CFLAGS', xml_cflags)
 configure_file(
     input: 'libxml2-config.cmake.in',
     output: 'libxml2-config.cmake',
     configuration: config_cmake,
-    install_dir: dir_lib / 'cmake' / 'libxml2',
+    install_dir: dir_lib / 'cmake' / meson.project_name(),
+)
+
+## xml2-config script
+
+install_data(
+    'xml2-config-meson',
+    install_dir: dir_bin,
+    install_mode: 'rwxr-xr-x',
+    rename: 'xml2-config',
 )
 
 # summary
@@ -577,6 +613,7 @@ summary(
         'c14n': want_c14n,
         'catalog': want_catalog,
         'debug': want_debug,
+        'docs': want_docs,
         'history': want_history,
         'html': want_html,
         'http': want_http,
@@ -584,7 +621,6 @@ summary(
         'icu': want_icu,
         'iso8859x': want_iso8859x,
         'legacy': want_legacy,
-        'lzma': want_lzma,
         'modules': want_modules,
         'output': want_output,
         'pattern': want_pattern,
@@ -593,6 +629,7 @@ summary(
         'reader': want_reader,
         'readline': want_readline,
         'regexps': want_regexps,
+        'relaxng': want_relaxng,
         'sax1': want_sax1,
         'schemas': want_schemas,
         'schematron': want_schematron,

@@ -1,11 +1,33 @@
-.test:
-  image: registry.gitlab.gnome.org/gnome/libxml2
-  variables:
-    BASE_CONFIG: "--with-legacy"
+include:
+  - component: "gitlab.gnome.org/GNOME/citemplates/release-service@master"
+    inputs:
+      dist-job-name: "dist"
+      tarball-artifact-path: "${TARBALL_ARTIFACT_PATH}"
+
+install:
+  image: registry.gitlab.gnome.org/gnome/libxml2/docs
   before_script:
     - rm -rf libxml2-build
     - mkdir libxml2-build
-    - ln -s /tests/xmlconf libxml2-build
+    - ln -s /tests/xmlconf .
+  script:
+    - sh .gitlab-ci/install.sh
+  variables:
+    CFLAGS: "-O2"
+    DOXYGEN_WARN_AS_ERROR: "FAIL_ON_WARNINGS"
+  artifacts:
+    expire_in: 2 hrs
+    paths:
+      - install
+
+.test:
+  image: registry.gitlab.gnome.org/gnome/libxml2
+  variables:
+    BASE_CONFIG: "--with-http --with-schematron --with-zlib --with-python"
+  before_script:
+    - rm -rf libxml2-build
+    - mkdir libxml2-build
+    - ln -s /tests/xmlconf .
   script:
     - sh .gitlab-ci/test.sh
 
@@ -18,7 +40,7 @@ gcc:c89:
   extends: .test
   variables:
     CONFIG: "--without-python"
-    CFLAGS: "-O2 -std=c89 -D_XOPEN_SOURCE=600"
+    CFLAGS: "-O2 -std=c89 -D_XOPEN_SOURCE=600 -Wno-error=unused-function -Wno-error=overlength-strings"
 
 gcc:minimum:
   extends: .test
@@ -30,7 +52,7 @@ gcc:medium:
   extends: .test
   variables:
     BASE_CONFIG: "--with-minimum"
-    CONFIG: "--with-threads --with-tree --with-xpath --with-output --with-html --with-iso8859x"
+    CONFIG: "--with-threads --with-tree --with-xpath --with-output --with-html --with-iso8859x --with-valid"
     CFLAGS: "-O2"
 
 gcc:legacy:
@@ -38,7 +60,7 @@ gcc:legacy:
   only:
     - schedules
   variables:
-    BASE_CONFIG: "--with-legacy"
+    BASE_CONFIG: "--with-legacy --with-python"
     CFLAGS: "-O2"
 
 gcc:static:
@@ -63,7 +85,7 @@ clang:msan:
 #  only:
 #    - schedules
   variables:
-    CONFIG: "--without-python --without-zlib --without-lzma"
+    CONFIG: "--without-python --without-zlib"
     CC: clang
     CFLAGS: "-O2 -g -fno-omit-frame-pointer -fsanitize=memory"
     MSAN_SYMBOLIZER_PATH: "$CI_PROJECT_DIR/.gitlab-ci/llvm-symbolizer"
@@ -72,9 +94,9 @@ clang:msan:
   tags:
     - win32-ps
   variables:
-    BASE_CONFIG: "--with-legacy"
-    # Disabled for now, see #658
-    CONFIG: "--without-python"
+    BASE_CONFIG: "--with-http --with-schematron --with-zlib --with-python"
+    # Python is disabled for now, see #658
+    CONFIG: "--with-docs --without-python"
     CHERE_INVOKING: "yes"
   before_script:
     - $Env:Path="C:\msys64\usr\bin;$Env:Path"
@@ -84,7 +106,7 @@ clang:msan:
   cache:
     key: "$MSYSTEM"
     paths:
-      - libxml2-build/xmlconf/
+      - xmlconf/
 
 mingw:w64-x86_64:shared:
   extends: .mingw
@@ -112,7 +134,7 @@ mingw:w64-i686:shared:
   before_script:
     - rm -rf libxml2-build
     - mkdir libxml2-build
-    - ln -s /tests/xmlconf libxml2-build
+    - ln -s /tests/xmlconf .
   script:
     - sh .gitlab-ci/test_cmake.sh
   artifacts:
@@ -124,6 +146,7 @@ cmake:linux:gcc:shared:
   extends: .cmake:linux
   variables:
     BUILD_SHARED_LIBS: "ON"
+    CONFIG: "-DLIBXML2_WITH_DOCS=ON"
     CC: gcc
     SUFFIX: linux-gcc-shared
 
@@ -167,7 +190,7 @@ cmake:linux:clang:static:
   cache:
     key: "$MSYSTEM"
     paths:
-      - libxml2-build/xmlconf/
+      - xmlconf/
   artifacts:
     paths:
       - libxml2-$Env:CI_COMMIT_SHORT_SHA-$Env:SUFFIX.tar.gz
@@ -179,13 +202,14 @@ cmake:mingw:w64-i686:shared:
     - schedules
   variables:
     BUILD_SHARED_LIBS: "ON"
+    CONFIG: "-DLIBXML2_WITH_DOCS=ON"
     MSYSTEM: MINGW32
     SUFFIX: mingw-w64-i686-shared
 
 cmake:mingw:w64-i686:static:
   extends: .cmake:mingw
-  only:
-    - schedules
+#  only:
+#    - schedules
   variables:
     BUILD_SHARED_LIBS: "OFF"
     MSYSTEM: MINGW32
@@ -193,6 +217,8 @@ cmake:mingw:w64-i686:static:
 
 cmake:mingw:w64-x86_64:shared:
   extends: .cmake:mingw
+#  only:
+#    - schedules
   variables:
     BUILD_SHARED_LIBS: "ON"
     MSYSTEM: MINGW64
@@ -221,7 +247,7 @@ cmake:mingw:w64-x86_64:static:
     key: "msvc"
     paths:
       - cmake-$Env:CMAKE_VERSION-win64-x64/
-      - libxml2-build/xmlconf/
+      - xmlconf/
       - 7za.exe
   artifacts:
     paths:
@@ -276,6 +302,8 @@ cmake:msvc:v141:x86:static:
 
 meson:
   image: registry.gitlab.gnome.org/gnome/libxml2
+  before_script:
+    - ln -s /tests/xmlconf .
   script:
     - sh .gitlab-ci/test_meson.sh
 
@@ -286,18 +314,33 @@ cmake:linux:gcc:shared:
     CC: gcc
     SUFFIX: linux-gcc-shared
 
-pages:
+dist:
+  image: registry.gitlab.gnome.org/gnome/libxml2
   script:
-    - mkdir -p public
-    - cp -r doc/devhelp doc/xmllint.html doc/xmlcatalog.html public
+    - sh .gitlab-ci/dist.sh
+    - echo "TARBALL_ARTIFACT_PATH=$(ls libxml2-dist/*.tar.xz)" >> build.env
+  artifacts:
+    paths:
+      - libxml2-dist/*.tar.xz
+    reports:
+      dotenv: build.env
+
+pages:
+  needs: [install]
+  script:
+    - cp -r install/share/doc/libxml2 public
+    - cp doc/_redirects public
   artifacts:
     paths:
       - public
-    exclude:
-      - public/devhelp/Makefile*
-      - public/devhelp/*.xsl
   only:
     - master@GNOME/libxml2
+
+downstream-lxml:
+  image: registry.gitlab.gnome.org/gnome/libxml2
+  needs: [install]
+  script:
+    - sh .gitlab-ci/downstream-lxml.sh
 
 downstream-nokogiri:
   # owner: @flavorjones
@@ -307,5 +350,18 @@ downstream-nokogiri:
 
 downstream-perl:
   image: registry.gitlab.gnome.org/gnome/libxml2
+  needs: [install]
   script:
     - sh .gitlab-ci/downstream-perl.sh
+
+downstream-php:
+  image: registry.gitlab.gnome.org/gnome/libxml2
+  needs: [install]
+  script:
+    - sh .gitlab-ci/downstream-php.sh
+
+downstream-xmlstarlet:
+  image: registry.gitlab.gnome.org/gnome/libxml2
+  needs: [install]
+  script:
+    - sh .gitlab-ci/downstream-xmlstarlet.sh

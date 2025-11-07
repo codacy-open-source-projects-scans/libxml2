@@ -14,33 +14,33 @@ expected results. You can restore the original results by running
 
 ## Generated files
 
-The documentation and other generated files can be rebuilt by running
+Some source code is generated with Python scripts in the `tools`
+directory.
 
-    make -C doc rebuild
+- `tools/genChRanges.py` generates code to handle character ranges
+  from chvalid.def:
+  - `chvalid.c`
+  - `include/libxml/chvalid.h`
 
-This requires `xsltproc`, the DocBook stylesheets in your XML Catalog
-and the libxml2 Python bindings to be installed, so it's best done on a
-Linux system. On Debian/Ubuntu, try
+- `tools/genEscape prints lookup tables for serialization.
 
-    apt install xsltproc python3-libxml2 docbook-xsl docbook-xml
+- `tools/genHtml5LibTests.py` creates test cases and expected results
+  from the html5lib test suite:
+  - `test/html-tokenizer`
+  - `result/html-tokenizer`
 
-doc/apibuild.py generates doc/libxml2-api.xml which is used to generate
+- `tools/genHtmlEnt.py` prints lookup tables for HTML5 named character
+  references (predefined entities):
+  - `html5ent.inc`
 
-- API documentation with XSLT stylesheets
-- testapi.c with gentest.py
-- Python bindings with python/generator.py
+- `tools/gentest.py` generates test code using the Doxygen XML output:
+  - `testapi.c`
 
-Man pages and HTML documentation for xmllint and xmlcatalog are
-generated with xsltproc and DocBook stylesheets.
+- `tools/genUnicode.py` generates code to handle Unicode ranges
+  from Unicode data files:
+  - `xmlunicode.c`
 
 ## Making a release
-
-### Rebuild generated files and documentation
-
-See above for details and run `make -C doc rebuild`.
-
-Look for new warning messages and inspect changes for correctness
-before committing.
 
 ### Update the NEWS file
 
@@ -52,21 +52,11 @@ You can get started by running
 
 Update the version number in `VERSION` if you haven't done so already.
 
-### Build the tarball
+### Commit and verify tarball
 
-I'd recommend to build the tarball by running
-
-    make distcheck
-
-which performs some useful checks as well.
-
-### Upload the tarball
-
-Follow the instructions at
-<https://wiki.gnome.org/MaintainersCorner/Releasing>:
-
-    scp libxml2-[version].tar.xz master.gnome.org:
-    ssh master.gnome.org ftpadmin install libxml2-[version].tar.xz
+Release tarballs are generated with a CI job and the `.gitlab-ci/dist.sh`
+script. Push the release commit and inspect the tarball artifact generated
+by Gitlab CI.
 
 ### Tag the release
 
@@ -75,15 +65,37 @@ Create an annotated tag and push it:
     git tag -a [version] -m 'Release [version]'
     git push origin [version]
 
+This will upload the release to the downloads server using the GNOME
+Release Service. For more details, see
+<https://handbook.gnome.org/maintainers/release-pipeline.html>
+
 ### Create a GitLab release
 
-Create a new GitLab release on
+Create or update a GitLab release on
 <https://gitlab.gnome.org/GNOME/libxml2/-/releases>.
 
 ### Announce the release
 
 Announce the release on https://discourse.gnome.org under topics 'libxml2'
 and 'announcements'.
+
+## Removing public API functions
+
+General process to remove public API functions (or variables):
+
+- Make sure that there's a reasonable alternative.
+- Mark the function as deprecated in the documentation and mention
+  alternatives.
+- Mark the function as XML_DEPRECATED in the header files.
+- For whole modules: disable the module by default and only enable
+  it in "legacy mode".
+- Remove the function body and make the function return an error code
+  or a no-op. Make sure that the symbol is kept and exported. This
+  should only be done after allowing users enough time to adjust.
+- At the next ABI bump, remove the symbol completely.
+
+You can wait for the next feature release between some of the steps to
+make the process more gradual.
 
 ## Breaking the ABI
 
@@ -106,9 +118,9 @@ The following changes are allowed (after careful consideration):
 ## Updating the CI Docker image
 
 Note that the CI image is used for libxslt as well. First create a
-GitLab access token with `read_registry` and `write_registry`
-permissions. Then run the following commands with the Dockerfile in the
-.gitlab-ci directory:
+GitLab access token with maintainer role and `read_registry` and
+`write_registry` permissions. Then run the following commands with the
+Dockerfile in the .gitlab-ci directory:
 
     docker login -u <username> -p <access_token> \
         registry.gitlab.gnome.org

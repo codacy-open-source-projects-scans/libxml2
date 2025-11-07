@@ -1,5 +1,15 @@
-# The image is also used for libxslt, that's why we need git and
-# libgcrypt-dev.
+# The image is also used for libxslt.
+#
+# package           required for
+# ------------------------------------------------------------
+# libclang-rt-dev   sanitizer runtimes
+# llvm              llvm-symbolizer (for sanitizer backtraces)
+# git               libxslt, downstream projects
+# libgcrypt-dev     libxslt
+# xz-utils          make dist
+# doxygen           documentation
+# xsltproc          documentation
+# docbook-xsl       documentation
 
 FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
@@ -9,9 +19,11 @@ RUN apt-get update && \
         curl git ca-certificates \
         autoconf automake libtool pkg-config \
         make gcc clang llvm libclang-rt-dev \
-        zlib1g-dev liblzma-dev libgcrypt-dev \
+        zlib1g-dev libgcrypt-dev \
         python3-dev \
-        cmake meson
+        cmake meson \
+        xz-utils \
+        doxygen xsltproc docbook-xsl
 WORKDIR /tests
 RUN curl https://www.w3.org/XML/Test/xmlts20080827.tar.gz |tar xz
 
@@ -30,3 +42,15 @@ RUN apt-get install -y --no-install-recommends \
         libyaml-perl
 RUN cpanm -n Alien::Libxml2
 RUN apt-get remove -y libxml2-dev
+
+# PHP
+RUN apt-get install -y --no-install-recommends \
+        bison re2c libsqlite3-dev
+
+# lxml
+RUN apt-get install -y --no-install-recommends \
+        cython3
+
+# xmlstarlet
+RUN apt-get install -y --no-install-recommends \
+        docbook-xsl-ns

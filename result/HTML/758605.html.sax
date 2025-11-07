@@ -2,10 +2,9 @@ SAX.setDocumentLocator()
 SAX.startDocument()
 SAX.startElement(html)
 SAX.startElement(body)
-SAX.startElement(p)
-SAX.characters(&amp;:&ecirc;
-, 5)
-SAX.endElement(p)
+SAX.characters(&amp;:, 2)
+SAX.characters(&ecirc;
+, 3)
 SAX.endElement(body)
 SAX.endElement(html)
 SAX.endDocument()

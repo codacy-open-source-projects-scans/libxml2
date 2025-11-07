@@ -112,9 +112,8 @@ libxml_PyFileGet(PyObject *f) {
 
     if (hntdll == NULL)
         return(NULL);
-XML_IGNORE_FPTR_CAST_WARNINGS
-    NtQueryInformationFile = (t_NtQueryInformationFile)GetProcAddress(hntdll, "NtQueryInformationFile");
-XML_POP_WARNINGS
+    NtQueryInformationFile = (t_NtQueryInformationFile) (void (*)(void))
+        GetProcAddress(hntdll, "NtQueryInformationFile");
 
     if (NtQueryInformationFile != NULL &&
         (NtQueryInformationFile((HANDLE)w_fh,
@@ -771,7 +770,7 @@ libxml_xmlTextReaderLocatorPtrWrap(xmlTextReaderLocatorPtr locator)
 }
 #endif /* LIBXML_READER_ENABLED */
 
-#ifdef LIBXML_SCHEMAS_ENABLED
+#ifdef LIBXML_RELAXNG_ENABLED
 PyObject *
 libxml_xmlRelaxNGPtrWrap(xmlRelaxNGPtr ctxt)
 {
@@ -815,7 +814,9 @@ libxml_xmlRelaxNGValidCtxtPtrWrap(xmlRelaxNGValidCtxtPtr valid)
                                      (char *) "xmlRelaxNGValidCtxtPtr", NULL);
     return (ret);
 }
+#endif /* LIBXML_RELAXNG_ENABLED */
 
+#ifdef LIBXML_SCHEMAS_ENABLED
 PyObject *
 libxml_xmlSchemaPtrWrap(xmlSchemaPtr ctxt)
 {

@@ -7,6 +7,7 @@ AC_INIT([libxml2],[version_macro])
 AC_CONFIG_SRCDIR([entities.c])
 AC_CONFIG_HEADERS([config.h])
 AC_CONFIG_MACRO_DIR([m4])
+AC_CONFIG_AUX_DIR([.])
 AC_CANONICAL_HOST
 
 LIBXML_VERSION=version_macro
@@ -16,9 +17,12 @@ LIBXML_MICRO_VERSION=`echo $LIBXML_VERSION | cut -d . -f 3`
 LIBXML_MICRO_VERSION_SUFFIX=
 
 # The oldest minor version we are compatible with.
-LIBXML_MINOR_COMPAT=0
+LIBXML_MINOR_COMPAT=14
 LIBXML_CURRENT=`expr $LIBXML_MAJOR_VERSION + $LIBXML_MINOR_VERSION`
 LIBXML_AGE=`expr $LIBXML_MINOR_VERSION - $LIBXML_MINOR_COMPAT`
+# At least on Linux, libtool will set SOVERSION to (CURRENT - AGE)
+# which equals (MAJOR + MINOR_COMPAT). The other build systems must
+# emulate this behavior.
 LIBXML_VERSION_INFO=$LIBXML_CURRENT:$LIBXML_MICRO_VERSION:$LIBXML_AGE
 
 LIBXML_VERSION_NUMBER=`expr $LIBXML_MAJOR_VERSION \* 10000 + $LIBXML_MINOR_VERSION \* 100 + $LIBXML_MICRO_VERSION`
@@ -40,9 +44,7 @@ AC_SUBST(LIBXML_VERSION_INFO)
 AC_SUBST(LIBXML_VERSION_NUMBER)
 AC_SUBST(LIBXML_VERSION_EXTRA)
 
-VERSION=${LIBXML_VERSION}
-
-AM_INIT_AUTOMAKE([1.16.3 foreign no-dist-gzip dist-xz])
+AM_INIT_AUTOMAKE([1.16.3 foreign subdir-objects no-dist-gzip dist-xz])
 AM_MAINTAINER_MODE([enable])
 AM_SILENT_RULES([yes])
 
@@ -51,9 +53,6 @@ AC_PROG_CC
 AC_PROG_INSTALL
 AC_PROG_LN_S
 AC_PROG_MKDIR_P
-AC_PATH_PROG(TAR, tar, /bin/tar)
-AC_PATH_PROG(WGET, wget, /usr/bin/wget)
-AC_PATH_PROG(XSLTPROC, xsltproc, /usr/bin/xsltproc)
 PKG_PROG_PKG_CONFIG
 
 LT_INIT([disable-static])
@@ -71,6 +70,8 @@ AC_ARG_WITH(catalog,
 [  --with-catalog          XML Catalogs support (on)])
 AC_ARG_WITH(debug,
 [  --with-debug            debugging module (on)])
+AC_ARG_WITH(docs,
+[  --with-docs             Build documentation (off)])
 AC_ARG_WITH(history,
 [  --with-history          history support for xmllint shell (off)])
 AC_ARG_WITH(readline,
@@ -78,15 +79,13 @@ AC_ARG_WITH(readline,
 AC_ARG_WITH(html,
 [  --with-html             HTML parser (on)])
 AC_ARG_WITH(http,
-[  --with-http             HTTP support (off)])
+[  --with-http             ABI compatibility for removed HTTP support (off)])
 AC_ARG_WITH(iconv,
 [  --with-iconv[[=DIR]]      iconv support (on)])
 AC_ARG_WITH(icu,
 [  --with-icu              ICU support (off)])
 AC_ARG_WITH(iso8859x,
 [  --with-iso8859x         ISO-8859-X support if no iconv (on)])
-AC_ARG_WITH(lzma,
-[  --with-lzma[[=DIR]]       use liblzma in DIR (off)])
 AC_ARG_WITH(modules,
 [  --with-modules          dynamic modules support (on)])
 AC_ARG_WITH(output,
@@ -101,12 +100,14 @@ AC_ARG_WITH(reader,
 [  --with-reader           xmlReader parsing interface (on)])
 AC_ARG_WITH(regexps,
 [  --with-regexps          regular expressions support (on)])
+AC_ARG_WITH(relaxng,
+[  --with-relaxng          RELAX NG support (on)])
 AC_ARG_WITH(sax1,
 [  --with-sax1             older SAX1 interface (on)])
 AC_ARG_WITH(schemas,
-[  --with-schemas          XML Schemas 1.0 and RELAX NG support (on)])
+[  --with-schemas          XML Schemas 1.0 support (on)])
 AC_ARG_WITH(schematron,
-[  --with-schematron       Schematron support (on)])
+[  --with-schematron       Schematron support (off)])
 AC_ARG_WITH(threads,
 [  --with-threads          multithreading support (on)])
 AC_ARG_WITH(thread-alloc,
@@ -136,11 +137,8 @@ dnl
 dnl Legacy defaults
 dnl
 if test "$with_legacy" = "yes"; then
-    if test "$with_http" = ""; then
-        with_http=yes
-    fi
-    if test "$with_lzma" = ""; then
-        with_lzma=yes
+    if test "$with_schematron" = ""; then
+        with_schematron=yes
     fi
     if test "$with_zlib" = ""; then
         with_zlib=yes
@@ -159,6 +157,16 @@ if test "$with_c14n" = "yes"; then
         echo WARNING: --with-c14n overrides --without-xpath
     fi
     with_xpath=yes
+fi
+if test "$with_relaxng" = "yes"; then
+    if test "$with_regexps" = "no"; then
+        echo WARNING: --with-relaxng overrides --without-regexps
+    fi
+    with_regexps=yes
+    if test "$with_schemas" = "no"; then
+        echo WARNING: --with-relaxng overrides --without-schemas
+    fi
+    with_schemas=yes
 fi
 if test "$with_schemas" = "yes"; then
     if test "$with_pattern" = "no"; then
@@ -196,12 +204,6 @@ if test "$with_writer" = "yes"; then
     fi
     with_push=yes
 fi
-if test "$with_xinclude" = "yes"; then
-    if test "$with_xpath" = "no"; then
-        echo WARNING: --with-xinclude overrides --without-xpath
-    fi
-    with_xpath=yes
-fi
 if test "$with_xptr" = "yes"; then
     if test "$with_xpath" = "no"; then
         echo WARNING: --with-xptr overrides --without-xpath
@@ -231,7 +233,6 @@ if test "$with_minimum" = "yes"; then
     test "$with_http" = "" && with_http=no
     test "$with_iconv" = "" && with_iconv=no
     test "$with_iso8859x" = "" && with_iso8859x=no
-    test "$with_lzma" = "" && with_lzma=no
     test "$with_output" = "" && with_output=no
     test "$with_pattern" = "" && with_pattern=no
     test "$with_push" = "" && with_push=no
@@ -239,6 +240,7 @@ if test "$with_minimum" = "yes"; then
     test "$with_reader" = "" && with_reader=no
     test "$with_readline" = "" && with_readline=no
     test "$with_regexps" = "" && with_regexps=no
+    test "$with_relaxng" = "" && with_relaxng=no
     test "$with_sax1" = "" && with_sax1=no
     test "$with_schemas" = "" && with_schemas=no
     test "$with_schematron" = "" && with_schematron=no
@@ -268,12 +270,15 @@ else
         with_writer=no
     fi
     if test "$with_regexps" = "no"; then
+        with_relaxng=no
         with_schemas=no
+    fi
+    if test "$with_schemas" = "no"; then
+        with_relaxng=no
     fi
     if test "$with_xpath" = "no"; then
         with_c14n=no
         with_schematron=no
-        with_xinclude=no
         with_xptr=no
     fi
 fi
@@ -306,36 +311,6 @@ AC_CHECK_DECLS([mmap], [], [], [#include <sys/mman.h>])
 
 AM_CONDITIONAL(WITH_GLOB, test "$ac_cv_have_decl_glob" = "yes")
 
-dnl
-dnl Checks for inet libraries
-dnl
-if test "$with_http" = "yes"; then
-    AC_CHECK_HEADERS([poll.h])
-
-    case "$host" in
-        *-*-mingw*)
-            dnl AC_SEARCH_LIBS doesn't work because of non-standard calling
-            dnl conventions on 32-bit Windows.
-            NET_LIBS="$NET_LIBS -lws2_32"
-            ;;
-        *)
-            _libs=$LIBS
-            AC_SEARCH_LIBS(gethostbyname, [nsl], [
-                if test "$ac_cv_search_gethostbyname" != "none required"; then
-                    NET_LIBS="$NET_LIBS $ac_cv_search_gethostbyname"
-                fi], [:], [$NET_LIBS])
-            AC_SEARCH_LIBS(connect, [bsd socket inet], [
-                if test "$ac_cv_search_connect" != "none required"; then
-                    NET_LIBS="$NET_LIBS $ac_cv_search_connect"
-                fi], [:], [$NET_LIBS])
-            LIBS=$_libs
-            ;;
-    esac
-
-    XML_PRIVATE_LIBS="${XML_PRIVATE_LIBS} ${NET_LIBS}"
-    XML_PC_LIBS="${XML_PC_LIBS} ${NET_LIBS}"
-fi
-
 dnl Thread-local storage
 if test "$with_tls" = "yes"; then
     AC_COMPILE_IFELSE([
@@ -349,33 +324,6 @@ if test "$with_tls" = "yes"; then
         AC_DEFINE([XML_THREAD_LOCAL], [__declspec(thread)], [TLS specifier]) ], [
     ])])])
 fi
-
-dnl
-dnl Linker version scripts for symbol versioning
-dnl
-VERSION_SCRIPT_FLAGS=
-if test "$with_legacy" = "yes"; then
-    # lt_cv_prog_gnu_ld is from libtool 2.+
-    if test "$lt_cv_prog_gnu_ld" = yes; then
-        case $host in
-            *-*-cygwin* | *-*-mingw* | *-*-msys* )
-                ;;
-            *)
-                dnl lld 16 defaults to --no-undefined-version but the version
-                dnl script can contain symbols disabled by configuration
-                dnl options.
-                AX_APPEND_LINK_FLAGS([-Wl,--undefined-version], [VERSION_SCRIPT_FLAGS])
-                AX_APPEND_FLAG([-Wl,--version-script=], [VERSION_SCRIPT_FLAGS])
-                ;;
-        esac
-    else
-        case $host in
-        *-*-sunos*) VERSION_SCRIPT_FLAGS="-Wl,-M -Wl,";;
-        esac
-    fi
-    AC_SUBST(VERSION_SCRIPT_FLAGS)
-fi
-AM_CONDITIONAL([USE_VERSION_SCRIPT], [test -n "$VERSION_SCRIPT_FLAGS"])
 
 dnl
 dnl Workaround for native compilers
@@ -437,20 +385,11 @@ dnl
 if test "$with_http" != "yes" ; then
     WITH_HTTP=0
 else
-    echo Enabling HTTP support
+    echo Enabling ABI compatibility stubs for removed HTTP support
     WITH_HTTP=1
 fi
 AC_SUBST(WITH_HTTP)
 AM_CONDITIONAL(WITH_HTTP_SOURCES, test "$WITH_HTTP" = "1")
-
-if test "$with_legacy" != "yes" ; then
-    WITH_LEGACY=0
-else
-    echo Enabling deprecated APIs
-    WITH_LEGACY=1
-fi
-AC_SUBST(WITH_LEGACY)
-AM_CONDITIONAL(WITH_LEGACY_SOURCES, test "$WITH_LEGACY" = "1")
 
 if test "$with_reader" = "no" ; then
     echo Disabling the xmlReader parsing interface
@@ -550,11 +489,11 @@ fi
 AC_SUBST(WITH_XINCLUDE)
 AM_CONDITIONAL(WITH_XINCLUDE_SOURCES, test "$WITH_XINCLUDE" = "1")
 
-if test "$with_schematron" = "no" ; then
-    echo "Disabling Schematron support"
-    WITH_SCHEMATRON=0
-else
+if test "$with_schematron" = "yes" ; then
+    echo "Enabling Schematron support"
     WITH_SCHEMATRON=1
+else
+    WITH_SCHEMATRON=0
 fi
 AC_SUBST(WITH_SCHEMATRON)
 AM_CONDITIONAL(WITH_SCHEMATRON_SOURCES, test "$WITH_SCHEMATRON" = "1")
@@ -585,8 +524,17 @@ else
 fi
 AC_SUBST(WITH_ISO8859X)
 
+if test "$with_relaxng" = "no" ; then
+    echo "Disabling Relax-NG support"
+    WITH_RELAXNG=0
+else
+    WITH_RELAXNG=1
+fi
+AC_SUBST(WITH_RELAXNG)
+AM_CONDITIONAL(WITH_RELAXNG_SOURCES, test "$WITH_RELAXNG" = "1")
+
 if test "$with_schemas" = "no" ; then
-    echo "Disabling Schemas/Relax-NG support"
+    echo "Disabling Schemas support"
     WITH_SCHEMAS=0
 else
     WITH_SCHEMAS=1
@@ -612,29 +560,53 @@ fi
 AC_SUBST(WITH_DEBUG)
 AM_CONDITIONAL(WITH_DEBUG_SOURCES, test "$WITH_DEBUG" = "1")
 
+if test "$with_docs" = "yes" ; then
+    echo Enabling documentation
+    AC_PATH_PROG(XSLTPROC, xsltproc, [no])
+    if test "$XSLTPROC" = "no"; then
+        AC_MSG_ERROR([cannot find xsltproc])
+    fi
+    WITH_DOCS=1
+else
+    WITH_DOCS=0
+fi
+AM_CONDITIONAL(WITH_DOCS, test "$WITH_DOCS" = "1")
+
 dnl
 dnl Check for Python
 dnl
 
-AS_IF([test "x$with_python" != "xno"], [
+AS_IF([test "x$with_python" = "xyes"], [
     AM_PATH_PYTHON
     PKG_CHECK_MODULES([PYTHON], [python-${PYTHON_VERSION}])
 ])
-AM_CONDITIONAL([WITH_PYTHON], [test "x$with_python" != "xno"])
+AM_CONDITIONAL([WITH_PYTHON], [test "x$with_python" = "xyes"])
 
 dnl
-dnl Extra Python flags for Windows
+dnl Check for Doxygen
+dnl
+
+if test "$with_python" = "yes" || test "$with_docs" = "yes"; then
+    AC_PATH_PROG(DOXYGEN, doxygen, [no])
+    if test "$DOXYGEN" = "no"; then
+        AC_MSG_ERROR([cannot find doxygen])
+    fi
+    WITH_DOXYGEN=1
+fi
+AM_CONDITIONAL([WITH_DOXYGEN], test "$WITH_DOXYGEN" = "1")
+
+dnl
+dnl Extra Python flags
 dnl
 PYTHON_LDFLAGS=
 if test "${PYTHON}" != ""; then
     case "$host" in
-        *-*-mingw* )
-            PYTHON_LDFLAGS="-no-undefined -shrext .pyd"
-            ;;
-        *-*-cygwin* |*-*-msys* )
+        *-*-cygwin* | *-*-mingw* | *-*-msys* )
             PYTHON_LDFLAGS="-no-undefined"
             ;;
     esac
+    ext_suffix=`$PYTHON -c 'import sysconfig; print(sysconfig.get_config_var("EXT_SUFFIX") or sysconfig.get_config_var("SO"))'`
+    PYTHON_LDFLAGS="$PYTHON_LDFLAGS -shrext $ext_suffix"
 fi
 AC_SUBST(PYTHON_LDFLAGS)
 
@@ -868,61 +840,6 @@ fi
 AC_SUBST(WITH_ZLIB)
 
 dnl
-dnl Checks for lzma library.
-dnl
-WITH_LZMA=0
-
-if test "$with_lzma" != "no" && test "$with_lzma" != ""; then
-    echo "Enabling lzma compression support"
-
-    if test "$with_lzma" != "yes"; then
-        LZMA_DIR=$with_lzma
-    fi
-
-    # Don't run pkg-config if with_lzma contains a path.
-    if test "x$LZMA_DIR" = "x"; then
-        # Try pkg-config first so that static linking works.
-        PKG_CHECK_MODULES([LZMA],[liblzma],
-            [WITH_LZMA=1; XML_PC_REQUIRES="${XML_PC_REQUIRES} liblzma"],
-            [:])
-    fi
-
-    # If pkg-config failed, fall back to AC_CHECK_LIB. This
-    # will not pick up the necessary LIBS flags for liblzma's
-    # private dependencies, though, so static linking may fail.
-    if test "$WITH_LZMA" = "0"; then
-        _cppflags=$CPPFLAGS
-        _libs=$LIBS
-        if test "x$LZMA_DIR" != "x"; then
-            CPPFLAGS="${CPPFLAGS} -I$LZMA_DIR/include"
-            LIBS="${LIBS} -L$LZMA_DIR/lib"
-        fi
-        AC_CHECK_HEADERS(lzma.h,
-            AC_CHECK_LIB(lzma, lzma_code,[
-                WITH_LZMA=1
-                if test "x${LZMA_DIR}" != "x"; then
-                    LZMA_CFLAGS="-I${LZMA_DIR}/include"
-                    LZMA_LIBS="-L${LZMA_DIR}/lib -llzma"
-                else
-                    LZMA_LIBS="-llzma"
-                fi])
-                XML_PC_LIBS="${XML_PC_LIBS} ${LZMA_LIBS}"
-            )
-        CPPFLAGS=$_cppflags
-        LIBS=$_libs
-    fi
-
-    if test "$WITH_LZMA" = "0"; then
-        AC_MSG_ERROR([liblzma not found])
-    fi
-
-    XML_PRIVATE_CFLAGS="${XML_PRIVATE_CFLAGS} ${LZMA_CFLAGS}"
-    XML_PRIVATE_LIBS="${XML_PRIVATE_LIBS} ${LZMA_LIBS}"
-fi
-AC_SUBST(WITH_LZMA)
-AM_CONDITIONAL(WITH_LZMA_SOURCES, test "$WITH_LZMA" = "1")
-
-dnl
 dnl Checks for iconv library.
 dnl
 WITH_ICONV=0
@@ -984,10 +901,10 @@ if test "$with_icu" != "no" && test "$with_icu" != "" ; then
 
     # Try pkg-config first so that static linking works.
     # If this succeeeds, we ignore the WITH_ICU directory.
-    PKG_CHECK_MODULES([ICU], [icu-i18n], [
-        WITH_ICU=1; XML_PC_REQUIRES="${XML_PC_REQUIRES} icu-i18n"
+    PKG_CHECK_MODULES([ICU], [icu-uc], [
+        WITH_ICU=1; XML_PC_REQUIRES="${XML_PC_REQUIRES} icu-uc"
         m4_ifdef([PKG_CHECK_VAR],
-            [PKG_CHECK_VAR([ICU_DEFS], [icu-i18n], [DEFS])])
+            [PKG_CHECK_VAR([ICU_DEFS], [icu-uc], [DEFS])])
         if test "x$ICU_DEFS" != "x"; then
             ICU_CFLAGS="$ICU_CFLAGS $ICU_DEFS"
         fi],[:])
@@ -1054,20 +971,24 @@ if test "x$enable_shared" = "xno"; then
   XML_PRIVATE_LIBS_NO_SHARED="${XML_PRIVATE_LIBS}"
   XML_PC_PRIVATE=
   XML_PC_LIBS_PRIVATE=
+  BUILD_SHARED_LIBS=0
 else
   XML_PRIVATE_LIBS_NO_SHARED=
   XML_PC_PRIVATE=".private"
   XML_PC_LIBS_PRIVATE="
 Libs.private:"
+  BUILD_SHARED_LIBS=1
 fi
 AC_SUBST(XML_PRIVATE_LIBS_NO_SHARED)
 AC_SUBST(XML_PC_PRIVATE)
 AC_SUBST(XML_PC_LIBS_PRIVATE)
 AC_SUBST(XML_PC_CFLAGS_PRIVATE)
+AC_SUBST(BUILD_SHARED_LIBS)
 AM_SUBST_NOTMAKE(XML_PRIVATE_LIBS_NO_SHARED)
 AM_SUBST_NOTMAKE(XML_PC_PRIVATE)
 AM_SUBST_NOTMAKE(XML_PC_LIBS_PRIVATE)
 AM_SUBST_NOTMAKE(XML_PC_CFLAGS_PRIVATE)
+AM_SUBST_NOTMAKE(BUILD_SHARED_LIBS)
 
 AC_SUBST(XML_PC_LIBS)
 AC_SUBST(XML_PC_REQUIRES)
@@ -1085,8 +1006,23 @@ AC_SUBST(XML_PRIVATE_LIBS)
 AC_SUBST(XML_PRIVATE_CFLAGS)
 AC_SUBST(XML_INCLUDEDIR)
 
+# for libxml2-config.cmake.in
+AX_RECURSIVE_EVAL(["$bindir"], [INSTALL_BINDIR])
+AX_RECURSIVE_EVAL(["$includedir"], [INSTALL_INCLUDEDIR])
+AX_RECURSIVE_EVAL(["$libdir"], [INSTALL_LIBDIR])
+AC_SUBST(INSTALL_BINDIR)
+AC_SUBST(INSTALL_INCLUDEDIR)
+AC_SUBST(INSTALL_LIBDIR)
+AM_SUBST_NOTMAKE(INSTALL_BINDIR)
+AM_SUBST_NOTMAKE(INSTALL_INCLUDEDIR)
+AM_SUBST_NOTMAKE(INSTALL_LIBDIR)
+
+AX_RECURSIVE_EVAL(["$sysconfdir"], [XML_SYSCONFDIR])
+AC_DEFINE_UNQUOTED([XML_SYSCONFDIR], ["$XML_SYSCONFDIR"],
+                   [System configuration directory (/etc)])
+
 # keep on one line for cygwin c.f. #130896
-AC_CONFIG_FILES([Makefile include/Makefile include/libxml/Makefile include/private/Makefile doc/Makefile doc/devhelp/Makefile example/Makefile fuzz/Makefile python/Makefile python/tests/Makefile xstc/Makefile include/libxml/xmlversion.h libxml-2.0.pc libxml2-config.cmake])
+AC_CONFIG_FILES([Makefile include/Makefile include/libxml/Makefile include/private/Makefile doc/Makefile example/Makefile fuzz/Makefile python/Makefile python/tests/Makefile include/libxml/xmlversion.h libxml-2.0.pc libxml2-config.cmake])
 AC_CONFIG_FILES([python/setup.py], [chmod +x python/setup.py])
 AC_CONFIG_FILES([xml2-config], [chmod +x xml2-config])
 AC_OUTPUT

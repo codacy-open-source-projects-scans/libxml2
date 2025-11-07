@@ -3,7 +3,7 @@
  *
  * See Copyright for the status of this software.
  *
- * daniel@veillard.com
+ * Author: Daniel Veillard
  */
 
 #include "libxml.h"
@@ -17,7 +17,9 @@
 #include <libxml/parserInternals.h>
 #include <libxml/tree.h>
 #include <libxml/uri.h>
-#if defined(LIBXML_SCHEMAS_ENABLED) && defined(LIBXML_XPATH_ENABLED)
+
+#if (defined(LIBXML_RELAXNG_ENABLED) || defined(LIBXML_SCHEMAS_ENABLED)) && \
+    defined(LIBXML_XPATH_ENABLED) && defined(LIBXML_OUTPUT_ENABLED)
 #include <libxml/xmlreader.h>
 
 #include <libxml/xpath.h>
@@ -28,9 +30,10 @@
 #include <libxml/xmlschemastypes.h>
 
 #define LOGFILE "runsuite.log"
+#define EXPECTED_XMP_ERROR_COUNT 3
+
 static FILE *logfile = NULL;
 static int verbose = 0;
-
 
 /************************************************************************
  *									*
@@ -55,16 +58,6 @@ static int checkTestFile(const char *filename) {
     return(1);
 }
 
-static xmlChar *composeDir(const xmlChar *dir, const xmlChar *path) {
-    char buf[500];
-
-    if (dir == NULL) return(xmlStrdup(path));
-    if (path == NULL) return(NULL);
-
-    snprintf(buf, 500, "%s/%s", (const char *) dir, (const char *) path);
-    return(xmlStrdup((const xmlChar *) buf));
-}
-
 /************************************************************************
  *									*
  *		Libxml2 specific routines				*
@@ -77,60 +70,6 @@ static int nb_internals = 0;
 static int nb_schematas = 0;
 static int nb_unimplemented = 0;
 static int nb_leaks = 0;
-
-static int
-fatalError(void) {
-    fprintf(stderr, "Exitting tests on fatal error\n");
-    exit(1);
-}
-
-/*
- * that's needed to implement <resource>
- */
-#define MAX_ENTITIES 20
-static char *testEntitiesName[MAX_ENTITIES];
-static char *testEntitiesValue[MAX_ENTITIES];
-static int nb_entities = 0;
-static void resetEntities(void) {
-    int i;
-
-    for (i = 0;i < nb_entities;i++) {
-        if (testEntitiesName[i] != NULL)
-	    xmlFree(testEntitiesName[i]);
-        if (testEntitiesValue[i] != NULL)
-	    xmlFree(testEntitiesValue[i]);
-    }
-    nb_entities = 0;
-}
-static int addEntity(char *name, char *content) {
-    if (nb_entities >= MAX_ENTITIES) {
-	fprintf(stderr, "Too many entities defined\n");
-	return(-1);
-    }
-    testEntitiesName[nb_entities] = name;
-    testEntitiesValue[nb_entities] = content;
-    nb_entities++;
-    return(0);
-}
-
-static int
-testResourceLoader(void *vctxt ATTRIBUTE_UNUSED, const char *URL,
-                   const char *ID ATTRIBUTE_UNUSED,
-                   xmlResourceType type ATTRIBUTE_UNUSED,
-                   int flags ATTRIBUTE_UNUSED, xmlParserInputPtr *out) {
-    int i;
-
-    for (i = 0; i < nb_entities; i++) {
-        if (!strcmp(testEntitiesName[i], URL)) {
-	    *out = xmlNewInputFromString(testEntitiesName[i],
-                                        testEntitiesValue[i],
-                                        XML_INPUT_BUF_STATIC);
-	    return(XML_ERR_OK);
-	}
-    }
-
-    return(xmlNewInputFromUrl(URL, 0, out));
-}
 
 /*
  * Trapping the error messages at the generic level to grab the equivalent of
@@ -206,6 +145,8 @@ initializeLibxml2(void) {
 #endif
 #ifdef LIBXML_SCHEMAS_ENABLED
     xmlSchemaInitTypes();
+#endif
+#ifdef LIBXML_RELAXNG_ENABLED
     xmlRelaxNGInitTypes();
 #endif
 }
@@ -271,6 +212,63 @@ getString(xmlNodePtr cur, const char *xpath) {
  *									*
  ************************************************************************/
 
+#ifdef LIBXML_RELAXNG_ENABLED
+
+/*
+ * that's needed to implement <resource>
+ */
+#define MAX_ENTITIES 20
+static char *testEntitiesName[MAX_ENTITIES];
+static char *testEntitiesValue[MAX_ENTITIES];
+static int nb_entities = 0;
+static void resetEntities(void) {
+    int i;
+
+    for (i = 0;i < nb_entities;i++) {
+        if (testEntitiesName[i] != NULL)
+	    xmlFree(testEntitiesName[i]);
+        if (testEntitiesValue[i] != NULL)
+	    xmlFree(testEntitiesValue[i]);
+    }
+    nb_entities = 0;
+}
+static int addEntity(char *name, char *content) {
+    if (nb_entities >= MAX_ENTITIES) {
+	fprintf(stderr, "Too many entities defined\n");
+	return(-1);
+    }
+    testEntitiesName[nb_entities] = name;
+    testEntitiesValue[nb_entities] = content;
+    nb_entities++;
+    return(0);
+}
+
+static xmlParserErrors
+testResourceLoader(void *vctxt ATTRIBUTE_UNUSED, const char *URL,
+                   const char *ID ATTRIBUTE_UNUSED,
+                   xmlResourceType type ATTRIBUTE_UNUSED,
+                   xmlParserInputFlags flags ATTRIBUTE_UNUSED,
+                   xmlParserInputPtr *out) {
+    int i;
+
+    for (i = 0; i < nb_entities; i++) {
+        if (!strcmp(testEntitiesName[i], URL)) {
+	    *out = xmlNewInputFromString(testEntitiesName[i],
+                                        testEntitiesValue[i],
+                                        XML_INPUT_BUF_STATIC);
+	    return(XML_ERR_OK);
+	}
+    }
+
+    return(xmlNewInputFromUrl(URL, 0, out));
+}
+
+static int
+fatalError(void) {
+    fprintf(stderr, "Exitting tests on fatal error\n");
+    exit(1);
+}
+
 static int
 xsdIncorrectTestCase(xmlNodePtr cur) {
     xmlNodePtr test;
@@ -328,6 +326,16 @@ done:
 	nb_leaks++;
     }
     return(ret);
+}
+
+static xmlChar *composeDir(const xmlChar *dir, const xmlChar *path) {
+    char buf[500];
+
+    if (dir == NULL) return(xmlStrdup(path));
+    if (path == NULL) return(NULL);
+
+    snprintf(buf, 500, "%s/%s", (const char *) dir, (const char *) path);
+    return(xmlStrdup((const xmlChar *) buf));
 }
 
 static void
@@ -733,12 +741,199 @@ done:
     return(ret);
 }
 
+/* Returns 1 for success */
+static int tryValidateElement(xmlRelaxNGValidCtxtPtr ctx, xmlDocPtr doc, xmlNodePtr elem)
+{
+    int rc = xmlRelaxNGValidatePushElement(ctx, doc, elem);
+    if (rc == 0)
+    {
+        /* Streaming is not possible, validate full element instead */
+        rc = xmlRelaxNGValidateFullElement(ctx, doc, elem);
+        if (rc == 1)
+            return 1;
+
+    Fail:
+        xmlRelaxNGValidCtxtClearErrors(ctx);
+        xmlResetLastError();
+        return 0;
+    }
+    else if (rc == 1)
+    {
+        xmlNodePtr child;
+        int success = 1;
+        for (child = xmlFirstElementChild(elem); child != NULL; child = xmlNextElementSibling(child))
+        {
+            /* Validate children elements recursively.
+             * NOTE: There may be no children to validate,
+             * as for example for <rng:text/> defines */
+            success = tryValidateElement(ctx, doc, child);
+            if (!success)
+                break;
+        }
+
+        if (xmlRelaxNGValidatePopElement(ctx, doc, elem) == 0)
+            goto Fail;
+
+        return success;
+    }
+    else
+    {
+        goto Fail;
+    }
+}
+
+static int
+rngTestStreaming(void) {
+    int mem;
+    int rc;
+    int error_count = 0;
+    xmlDocPtr schema_doc;
+    xmlDocPtr xmp_packet_doc = NULL;
+    xmlRelaxNGParserCtxtPtr rng_parser_ctx;
+    xmlRelaxNGPtr schema = NULL;
+    xmlRelaxNGValidCtxtPtr validation_ctx = NULL;
+    xmlNodePtr xmpmeta;
+    xmlNodePtr rdf;
+    xmlNodePtr description;
+    xmlNodePtr child;
+    const xmlChar* error_arr[EXPECTED_XMP_ERROR_COUNT] = { NULL };
+    const char* schema_filepath = "test/relaxng/ISO19005-1-XMP_Packet.rng";
+    const char* xmp_packet_filepath = "test/relaxng/TestXMPInvalid1.xmp";
+
+    mem = xmlMemUsed();
+
+    schema_doc = xmlReadFile(schema_filepath, NULL, 0);
+    if (schema_doc == NULL) {
+        fprintf(stderr, "RNG Streaming: Failed to parse %s\n", schema_filepath);
+        return(-1);
+    }
+
+    rng_parser_ctx = xmlRelaxNGNewDocParserCtxt(schema_doc);
+    if (rng_parser_ctx == NULL) {
+        xmlFreeDoc(schema_doc);
+        fprintf(stderr, "RNG Streaming: Failed to create Relax NG parser context\n");
+        return(-1);
+    }
+
+    xmlFreeDoc(schema_doc);
+    schema = xmlRelaxNGParse(rng_parser_ctx);
+    if (rng_parser_ctx == NULL) {
+        xmlRelaxNGFreeParserCtxt(rng_parser_ctx);
+        fprintf(stderr, "RNG Streaming: Failed to parse Relax NG schema\n");
+        return(-1);
+    }
+
+    xmlRelaxNGFreeParserCtxt(rng_parser_ctx);
+    validation_ctx = xmlRelaxNGNewValidCtxt(schema);
+    if (rng_parser_ctx == NULL) {
+        xmlRelaxNGFree(schema);
+        fprintf(stderr, "RNG Streaming: Failed to create Relax NG validation context\n");
+        return(-1);
+    }
+
+    xmp_packet_doc = xmlReadFile(xmp_packet_filepath, NULL, 0);
+    if (xmp_packet_doc == NULL) {
+        xmlRelaxNGFreeValidCtxt(validation_ctx);
+        xmlRelaxNGFree(schema);
+        fprintf(stderr, "RNG Streaming: Failed to parse %s\n", xmp_packet_filepath);
+        return(-1);
+    }
+
+    xmpmeta = xmlDocGetRootElement(xmp_packet_doc);
+    if (xmpmeta == NULL || xmlStrcmp(BAD_CAST "xmpmeta", xmpmeta->name) != 0) {
+        fprintf(stderr, "RNG Streaming: Unable to find <x:xmpmeta> element\n");
+        rc = -1;
+        goto Exit;
+    }
+
+    rdf = xmlFirstElementChild(xmpmeta);
+    if (rdf == NULL || xmlStrcmp(BAD_CAST "RDF", rdf->name) != 0) {
+        fprintf(stderr, "RNG Streaming: Unable to find <rdf:RDF> element\n");
+        rc = -1;
+        goto Exit;
+    }
+
+    description = xmlFirstElementChild(rdf);
+    if (description == NULL || xmlStrcmp(BAD_CAST "Description", description->name) != 0) {
+        fprintf(stderr, "RNG Streaming: Unable to find <rdf:Description> element\n");
+        rc = -1;
+        goto Exit;
+    }
+
+    /* Push enclosing/preamble elements */
+    rc = xmlRelaxNGValidatePushElement(validation_ctx, xmp_packet_doc, xmpmeta);        /* <x:xmpmeta> */
+    if (rc != 1)
+        goto FailPushPopEnclosing;
+    rc = xmlRelaxNGValidatePushElement(validation_ctx, xmp_packet_doc, rdf);            /* <rdf:RDF> */
+    if (rc != 1)
+        goto FailPushPopEnclosing;
+    rc = xmlRelaxNGValidatePushElement(validation_ctx, xmp_packet_doc, description);    /* <rdf:Description> */
+    if (rc != 1)
+        goto FailPushPopEnclosing;
+
+    for (child = xmlFirstElementChild(description); child != NULL; child = xmlNextElementSibling(child))
+    {
+        if (!tryValidateElement(validation_ctx, xmp_packet_doc, child))
+        {
+            error_count++;
+            if (error_count > EXPECTED_XMP_ERROR_COUNT) {
+                fprintf(stderr, "RNG Streaming: Unexpected error count\n");
+                rc = -1;
+                goto Exit;
+            }
+
+            error_arr[error_count - 1] = child->name;
+        }
+    }
+
+    rc = xmlRelaxNGValidatePopElement(validation_ctx, xmp_packet_doc, description);     /* </rdf:Description> */
+    if (rc != 1)
+        goto FailPushPopEnclosing;
+    rc = xmlRelaxNGValidatePopElement(validation_ctx, xmp_packet_doc, rdf);             /* </rdf:RDF> */
+    if (rc != 1)
+        goto FailPushPopEnclosing;
+    rc = xmlRelaxNGValidatePopElement(validation_ctx, xmp_packet_doc, xmpmeta);         /* </x:xmpmeta> */
+    if (rc != 1)
+        goto FailPushPopEnclosing;
+
+    if (error_count < EXPECTED_XMP_ERROR_COUNT
+            || xmlStrcmp(error_arr[0], BAD_CAST "MetadataDate") != 0
+            || xmlStrcmp(error_arr[1], BAD_CAST "Trapped") != 0
+            || xmlStrcmp(error_arr[2], BAD_CAST "Ignore") != 0) {
+        fprintf(stderr, "RNG Streaming: Invalid known errors\n");
+        rc = -1;
+        goto Exit;
+    }
+
+    rc = 0;
+    goto Exit;
+
+FailPushPopEnclosing:
+    fprintf(stderr, "RNG Streaming: Unable to push/pop packet enclosing elements\n");
+    rc = -1;
+
+Exit:
+    xmlRelaxNGFreeValidCtxt(validation_ctx);
+    xmlRelaxNGFree(schema);
+    xmlFreeDoc(xmp_packet_doc);
+
+    if (mem != xmlMemUsed()) {
+        fprintf(stderr, "RNG Streaming: Test leaked\n");
+        nb_leaks++;
+    }
+
+    return rc;
+}
+
+#endif /* LIBXML_RELAXNG_ENABLED */
+
 /************************************************************************
  *									*
  *		Schemas test suites from W3C/NIST/MS/Sun		*
  *									*
  ************************************************************************/
 
+#ifdef LIBXML_SCHEMAS_ENABLED
 static int
 xstcTestInstance(xmlNodePtr cur, xmlSchemaPtr schemas,
                  const xmlChar *spath, const char *base) {
@@ -998,6 +1193,7 @@ done:
     xmlFreeDoc(doc);
     return(ret);
 }
+#endif /* LIBXML_SCHEMAS_ENABLED */
 
 /************************************************************************
  *									*
@@ -1008,7 +1204,10 @@ done:
 int
 main(int argc ATTRIBUTE_UNUSED, char **argv ATTRIBUTE_UNUSED) {
     int ret = 0;
-    int old_errors, old_tests, old_leaks, expected_errors;
+    int old_errors, old_tests, old_leaks;
+#ifdef LIBXML_RELAXNG_ENABLED
+    int expected_errors;
+#endif
 
     logfile = fopen(LOGFILE, "wb");
     if (logfile == NULL) {
@@ -1021,6 +1220,9 @@ main(int argc ATTRIBUTE_UNUSED, char **argv ATTRIBUTE_UNUSED) {
     if ((argc >= 2) && (!strcmp(argv[1], "-v")))
         verbose = 1;
 
+#ifdef LIBXML_RELAXNG_ENABLED
+    if (rngTestStreaming() != 0)
+        nb_errors++;
 
     old_errors = nb_errors;
     old_tests = nb_tests;
@@ -1063,7 +1265,9 @@ main(int argc ATTRIBUTE_UNUSED, char **argv ATTRIBUTE_UNUSED) {
 	       nb_tests - old_tests,
 	       nb_errors - old_errors,
 	       nb_leaks - old_leaks);
+#endif /* LIBXML_RELAXNG_ENABLED */
 
+#ifdef LIBXML_SCHEMAS_ENABLED
     old_errors = nb_errors;
     old_tests = nb_tests;
     old_leaks = nb_leaks;
@@ -1123,6 +1327,7 @@ main(int argc ATTRIBUTE_UNUSED, char **argv ATTRIBUTE_UNUSED) {
         printf("Some errors were expected.\n");
         nb_errors = old_errors;
     }
+#endif /* LIBXML_SCHEMAS_ENABLED */
 
     if ((nb_errors == 0) && (nb_leaks == 0)) {
         ret = 0;
@@ -1140,7 +1345,7 @@ main(int argc ATTRIBUTE_UNUSED, char **argv ATTRIBUTE_UNUSED) {
         fclose(logfile);
     return(ret);
 }
-#else /* !SCHEMAS */
+#else /* !RELAXNG && !SCHEMAS */
 int
 main(int argc ATTRIBUTE_UNUSED, char **argv ATTRIBUTE_UNUSED) {
     fprintf(stderr, "runsuite requires support for schemas and xpath in libxml2\n");

@@ -45,7 +45,8 @@ PYTESTS=	\
     validRNG.py \
     compareNodes.py \
     xpathns.py \
-    xpathleak.py
+    xpathleak.py \
+    unicode.py
 
 XMLS=		\
     tst.xml	\
@@ -53,7 +54,7 @@ XMLS=		\
     invalid.xml	\
     test.dtd
 
-EXTRA_DIST = $(PYTESTS) $(XMLS) setup_test.py meson.build
+EXTRA_DIST = $(PYTESTS) $(XMLS) setup_test.py
 
 CLEANFILES = core tmp.xml *.pyc
 

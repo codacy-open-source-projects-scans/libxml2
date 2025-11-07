@@ -3,7 +3,7 @@
  *
  * See Copyright for the status of this software.
  *
- * daniel@veillard.com
+ * Author: Daniel Veillard
  */
 
 #include "libxml.h"
@@ -29,10 +29,10 @@
 static FILE *logfile = NULL;
 static int verbose = 0;
 
-#define NB_EXPECTED_ERRORS 15
+#define NB_EXPECTED_ERRORS 5
 
 
-const char *skipped_tests[] = {
+static const char *const skipped_tests[] = {
 /* http://lists.w3.org/Archives/Public/public-xml-testsuite/2008Jul/0000.html */
     "rmt-ns10-035",
     NULL
@@ -178,6 +178,8 @@ xmlconfTestInvalid(const char *id, const char *filename, int options) {
     if (doc == NULL) {
         test_log("test %s : %s invalid document turned not well-formed too\n",
 	         id, filename);
+        nb_errors++;
+        ret = 0;
     } else {
     /* invalidity should be reported both in the context and in the document */
         if ((ctxt->valid != 0) || (doc->properties & XML_DOC_DTDVALID)) {
@@ -504,11 +506,13 @@ xmlconfInfo(void) {
 }
 
 static int
-xmlconfTest(void) {
-    const char *confxml = "xmlconf/xmlconf.xml";
+xmlconfTest(const char *dir) {
+    char confxml[500];
     xmlDocPtr doc;
     xmlNodePtr cur;
     int ret = 0;
+
+    snprintf(confxml, sizeof(confxml), "%s/xmlconf.xml", dir);
 
     if (!checkTestFile(confxml)) {
         fprintf(stderr, "%s is missing \n", confxml);
@@ -541,9 +545,11 @@ xmlconfTest(void) {
  ************************************************************************/
 
 int
-main(int argc ATTRIBUTE_UNUSED, char **argv ATTRIBUTE_UNUSED) {
+main(int argc, char **argv) {
     int ret = 0;
     int old_errors, old_tests, old_leaks;
+    const char *dir = "xmlconf";
+    int i;
 
     logfile = fopen(LOGFILE, "wb");
     if (logfile == NULL) {
@@ -553,14 +559,22 @@ main(int argc ATTRIBUTE_UNUSED, char **argv ATTRIBUTE_UNUSED) {
     }
     initializeLibxml2();
 
-    if ((argc >= 2) && (!strcmp(argv[1], "-v")))
-        verbose = 1;
-
+    for (i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-v") == 0) {
+            verbose = 1;
+        } else if (strcmp(argv[i], "-d") == 0 && i + 1 < argc) {
+            i += 1;
+            dir = argv[i];
+        } else {
+            fprintf(stderr, "invalid argument: %s\n", argv[i]);
+            return 1;
+        }
+    }
 
     old_errors = nb_errors;
     old_tests = nb_tests;
     old_leaks = nb_leaks;
-    xmlconfTest();
+    xmlconfTest(dir);
     if ((nb_errors == old_errors) && (nb_leaks == old_leaks))
 	printf("Ran %d tests, no errors\n", nb_tests - old_tests);
     else

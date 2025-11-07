@@ -12,6 +12,12 @@ meaningful stack traces.
         -fno-sanitize-recover=all \
         -DFUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION"
 
+Since llvm-symbolizer can use libxml2 itself, you may need the following
+wrapper to make sure that it doesn't use the instrumented version of
+libxml2:
+
+    export ASAN_SYMBOLIZER_PATH="$(pwd)/.gitlab-ci/llvm-symbolizer"
+
 Other options that can improve stack traces:
 
     -fno-omit-frame-pointer
@@ -45,3 +51,7 @@ XML_FUZZ_MALLOC_ABORT to see which allocation failed. Debugging
 failures which are erroneously reported can be harder. If the report
 goes through xmlRaiseMemoryError, you can abort() there to get a
 stack trace.
+
+Bugs related to handling of malloc failures are not considered
+security-critical by the libxml2 maintainers. Nevertheless, we'd like
+to see such issues reported.
