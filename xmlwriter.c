@@ -1051,6 +1051,7 @@ xmlTextWriterStartElementNS(xmlTextWriter *writer,
         if (p->uri == 0) {
             xmlWriterErrMsg(writer, XML_ERR_NO_MEMORY,
                             "xmlTextWriterStartElementNS : out of memory!\n");
+            xmlFree(p->prefix);
             xmlFree(p);
             return -1;
         }
@@ -4326,9 +4327,14 @@ xmlTextWriterVSprintf(const char *format, va_list argptr)
 
     va_copy(locarg, argptr);
     while (((count = vsnprintf((char *) buf, size, format, locarg)) < 0)
-           || (count == size - 1) || (count == size) || (count > size)) {
+           || (count >= size - 1)) {
 	va_end(locarg);
         xmlFree(buf);
+        if (size > INT_MAX - BUFSIZ) {
+           xmlWriterErrMsg(NULL, XML_ERR_ARGUMENT,
+                           "xmlTextWriterVSprintf : invalid format / argument!\n");
+           return NULL;
+        }
         size += BUFSIZ;
         buf = (xmlChar *) xmlMalloc(size);
         if (buf == NULL) {
