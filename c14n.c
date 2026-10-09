@@ -313,6 +313,8 @@ xmlC14NVisibleNsStackAdd(xmlC14NVisibleNsStackPtr cur, xmlNsPtr ns, xmlNodePtr n
         newSize = xmlGrowCapacity(cur->nsMax,
                                   sizeof(tmp1[0]) + sizeof(tmp2[0]),
                                   XML_NAMESPACES_DEFAULT, XML_MAX_ITEMS);
+        if (newSize < 0)
+            return (-1);
 
 	tmp1 = xmlRealloc(cur->nsTab, newSize * sizeof(tmp1[0]));
 	if (tmp1 == NULL)
@@ -1720,8 +1722,7 @@ xmlC14NFreeCtx(xmlC14NCtxPtr ctx)
  * @param mode  the c14n mode (see `xmlC14NMode`)
  * @param inclusive_ns_prefixes  the list of inclusive namespace prefixes
  *			ended with a NULL or NULL if there is no
- *			inclusive namespaces (only for `
- *			canonicalization)
+ *			inclusive namespaces (only for canonicalization)
  * @param with_comments  	include comments in the result (!=0) or not (==0)
  * @param buf  		the output buffer to store canonical XML; this
  *			buffer MUST have encoder==NULL because C14N requires

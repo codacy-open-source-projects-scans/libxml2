@@ -2123,8 +2123,8 @@ xmlSchemaErr4Line(xmlSchemaAbstractCtxtPtr ctxt,
 	    }
 	    if (vctxt->locFunc != NULL) {
 	        if ((file == NULL) || (line == 0)) {
-		    unsigned long l;
-		    const char *f;
+		    unsigned long l = 0;
+		    const char *f = NULL;
 		    vctxt->locFunc(vctxt->locCtxt, &f, &l);
 		    if (file == NULL)
 		        file = f;
@@ -26811,7 +26811,7 @@ xmlSchemaSAXHandleCDataSection(void *ctx,
 }
 
 static void
-xmlSchemaSAXHandleReference(void *ctx ATTRIBUTE_UNUSED,
+xmlSchemaSAXHandleReference(void *ctx,
 			    const xmlChar * name ATTRIBUTE_UNUSED)
 {
     xmlSchemaValidCtxtPtr vctxt = (xmlSchemaValidCtxtPtr) ctx;
@@ -28061,7 +28061,7 @@ referenceSplit(void *ctx, const xmlChar *name)
         (ctxt->user_sax->reference != NULL))
 	ctxt->user_sax->reference(ctxt->user_data, name);
     if (ctxt->ctxt != NULL)
-        xmlSchemaSAXHandleReference(ctxt->user_data, name);
+        xmlSchemaSAXHandleReference(ctxt->ctxt, name);
 }
 
 static void
